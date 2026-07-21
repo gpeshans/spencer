@@ -114,9 +114,7 @@ export interface Database {
       };
     };
     Views: Record<string, never>;
-    Functions: {
-      current_group_id: { Args: Record<string, never>; Returns: string };
-    };
+    Functions: Record<string, never>;
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
   };
