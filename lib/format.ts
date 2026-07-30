@@ -108,3 +108,17 @@ export function yearRange(d: Date): { start: string; end: string } {
 }
 
 export { addMonths, addYears, startOfMonth, startOfYear };
+
+/**
+ * Up to two uppercase initials for an avatar. Prefers a display name
+ * ("Ada Lovelace" → "AL") and falls back to the email's local part
+ * ("ada.lovelace@example.com" → "AL"); returns "?" when nothing is available.
+ */
+export function initialsFrom(name?: string | null, email?: string | null): string {
+  const source = (name?.trim() || email?.split('@')[0] || '').trim();
+  if (!source) return '?';
+  const parts = source.split(/[\s._-]+/).filter(Boolean);
+  const picked =
+    parts.length >= 2 ? parts[0][0] + parts[parts.length - 1][0] : source.slice(0, 2);
+  return picked.toUpperCase();
+}

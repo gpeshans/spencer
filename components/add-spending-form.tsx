@@ -70,7 +70,7 @@ export function AddSpendingForm({
 
   return (
     <>
-      <div className="flex flex-col gap-6 px-4 pt-[calc(env(safe-area-inset-top)+1rem)] pb-[calc(6rem+env(safe-area-inset-bottom))]">
+      <div className="flex flex-col gap-6 px-4 pt-4 pb-[calc(6rem+env(safe-area-inset-bottom))]">
         <h1 className="text-xl font-semibold tracking-tight">Add spending</h1>
 
         {/* Amount — the primary input */}
