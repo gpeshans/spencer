@@ -5,6 +5,7 @@ import type { SupabaseClient, User } from '@supabase/supabase-js';
 import { isAllowed } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 import type { Database, Profile } from '@/types/database';
+import type { GroupMember } from '@/types/models';
 
 type Authed = { supabase: SupabaseClient<Database>; user: User };
 
@@ -33,4 +34,32 @@ export async function getProfile(): Promise<(Authed & { profile: Profile }) | nu
     .single();
   if (!profile) return null;
   return { ...authed, profile };
+}
+
+/**
+ * getProfile(), plus the user's group (id + name) and everyone else in it.
+ * Powers the header's profile menu + family list; the group and members are
+ * readable under the group-scoped RLS SELECT policies.
+ */
+export async function getGroupContext(): Promise<
+  | (Authed & {
+      profile: Profile;
+      group: { id: string; name: string };
+      members: GroupMember[];
+    })
+  | null
+> {
+  const authed = await getProfile();
+  if (!authed) return null;
+  const { supabase, profile } = authed;
+  const [{ data: group }, { data: members }] = await Promise.all([
+    supabase.from('groups').select('id, name').eq('id', profile.group_id).single(),
+    supabase
+      .from('profiles')
+      .select('id, display_name, email, avatar_url')
+      .eq('group_id', profile.group_id)
+      .order('created_at', { ascending: true }),
+  ]);
+  if (!group) return null;
+  return { ...authed, group, members: members ?? [] };
 }

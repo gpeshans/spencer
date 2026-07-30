@@ -2,6 +2,7 @@ import { Wallet } from 'lucide-react';
 import { redirect } from 'next/navigation';
 
 import { GoogleSignInButton } from '@/components/google-sign-in-button';
+import { Wordmark } from '@/components/wordmark';
 import { getAuthed } from '@/lib/session';
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -23,11 +24,11 @@ export default async function LoginPage({
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col items-center justify-center gap-10 px-6">
       <div className="flex flex-col items-center gap-4 text-center">
-        <div className="flex size-16 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
+        <div className="flex size-16 items-center justify-center rounded-2xl bg-brand/10 text-brand">
           <Wallet className="size-8" />
         </div>
         <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Spencer</h1>
+          <Wordmark as="h1" className="text-4xl" />
           <p className="text-muted-foreground">Simple family spending tracker</p>
         </div>
       </div>

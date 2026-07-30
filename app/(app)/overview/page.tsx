@@ -35,7 +35,7 @@ export default async function OverviewPage({
   const remaining = data.incomeTotal - data.spentTotal;
 
   return (
-    <div className="flex flex-col gap-6 px-4 pb-6 pt-[calc(env(safe-area-inset-top)+1rem)]">
+    <div className="flex flex-col gap-6 px-4 pb-6 pt-4">
       {/* Month switcher */}
       <div className="flex items-center justify-between">
         <Link

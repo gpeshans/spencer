@@ -31,7 +31,7 @@ export default async function YearPage({
   const saved = data.incomeTotal - data.spentTotal;
 
   return (
-    <div className="flex flex-col gap-6 px-4 pb-6 pt-[calc(env(safe-area-inset-top)+1rem)]">
+    <div className="flex flex-col gap-6 px-4 pb-6 pt-4">
       {/* Year switcher */}
       <div className="flex items-center justify-between">
         <Link
