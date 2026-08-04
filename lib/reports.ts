@@ -6,7 +6,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { isoDate, monthRange, todayISO, yearRange } from '@/lib/format';
 import { createClient } from '@/lib/supabase/server';
 import type { Database, Income, Spending } from '@/types/database';
-import type { AuthoredSpending, CategoryTotal } from '@/types/models';
+import type { AuthoredSpending, BucketTotal, CategoryTotal } from '@/types/models';
 
 type DB = SupabaseClient<Database>;
 
@@ -32,6 +32,12 @@ function totalsByCategory(rows: { category: string; amount: number }[]): Categor
   return [...m.entries()]
     .map(([category, total]) => ({ category, total }))
     .sort((a, b) => b.total - a.total);
+}
+
+function totalsByBucket(rows: { bucket: string; amount: number }[]): BucketTotal[] {
+  const m = new Map<string, number>();
+  rows.forEach((r) => m.set(r.bucket, (m.get(r.bucket) ?? 0) + Number(r.amount)));
+  return [...m.entries()].map(([bucket, total]) => ({ bucket, total }));
 }
 
 function sum(rows: { amount: number }[]): number {
@@ -69,6 +75,7 @@ export async function getRecentSpendings(limit = 8): Promise<AuthoredSpending[]>
 export type MonthData = {
   spendings: AuthoredSpending[];
   byCategory: CategoryTotal[];
+  byBucket: BucketTotal[];
   spentTotal: number;
   incomeTotal: number;
 };
@@ -92,6 +99,7 @@ export async function getMonthData(month: Date): Promise<MonthData> {
   return {
     spendings,
     byCategory: totalsByCategory(spendings),
+    byBucket: totalsByBucket(spendings),
     spentTotal: sum(spendings),
     incomeTotal: incomeTotalForMonth(incomeRows ?? [], start),
   };
@@ -100,6 +108,7 @@ export async function getMonthData(month: Date): Promise<MonthData> {
 export type YearData = {
   byMonth: { month: number; spent: number; income: number }[];
   byCategory: CategoryTotal[];
+  byBucket: BucketTotal[];
   spentTotal: number;
   incomeTotal: number;
 };
@@ -110,13 +119,18 @@ export async function getYearData(year: Date): Promise<YearData> {
   const [{ data: rows }, { data: incomeRows }] = await Promise.all([
     supabase
       .from('spendings')
-      .select('category, amount, spent_on')
+      .select('category, amount, spent_on, bucket')
       .gte('spent_on', start)
       .lte('spent_on', end),
     supabase.from('income').select('*').lte('effective_from', end),
   ]);
 
-  const spendings = (rows ?? []) as { category: string; amount: number; spent_on: string }[];
+  const spendings = (rows ?? []) as {
+    category: string;
+    amount: number;
+    spent_on: string;
+    bucket: string;
+  }[];
   const income = incomeRows ?? [];
 
   const todayStr = todayISO();
@@ -137,6 +151,7 @@ export async function getYearData(year: Date): Promise<YearData> {
   return {
     byMonth,
     byCategory: totalsByCategory(spendings),
+    byBucket: totalsByBucket(spendings),
     spentTotal: sum(spendings),
     incomeTotal: byMonth.reduce((s, m) => s + m.income, 0),
   };

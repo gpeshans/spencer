@@ -19,15 +19,17 @@ export type BucketKey = 'needs' | 'wants' | 'savings' | 'emergency';
 export type Bucket = {
   key: BucketKey;
   label: string;
+  /** Hex color used by the bucket goal charts. */
+  color: string;
   /** Default share of income this bucket should get, in percent (sums to 100). */
   defaultTargetPct: number;
 };
 
 export const BUCKETS: Bucket[] = [
-  { key: 'needs', label: 'Needs', defaultTargetPct: 20 },
-  { key: 'wants', label: 'Wants', defaultTargetPct: 10 },
-  { key: 'savings', label: 'Savings & Investments', defaultTargetPct: 40 },
-  { key: 'emergency', label: 'Emergency', defaultTargetPct: 30 },
+  { key: 'needs', label: 'Needs', color: '#1971c2', defaultTargetPct: 20 },
+  { key: 'wants', label: 'Wants', color: '#f08c00', defaultTargetPct: 10 },
+  { key: 'savings', label: 'Savings & Investments', color: '#2f9e44', defaultTargetPct: 40 },
+  { key: 'emergency', label: 'Emergency', color: '#7048e8', defaultTargetPct: 30 },
 ];
 
 export const BUCKET_BY_KEY = Object.fromEntries(BUCKETS.map((b) => [b.key, b])) as Record<

@@ -1,6 +1,6 @@
 'use client';
 
-import { BarChart3, PieChart, Plus, Wallet } from 'lucide-react';
+import { BarChart3, PieChart, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -10,7 +10,6 @@ const ITEMS = [
   { href: '/', label: 'Add', icon: Plus },
   { href: '/overview', label: 'Month', icon: PieChart },
   { href: '/year', label: 'Year', icon: BarChart3 },
-  { href: '/income', label: 'Income', icon: Wallet },
 ] as const;
 
 export function BottomNav() {
@@ -18,7 +17,7 @@ export function BottomNav() {
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-md border-t bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/75">
-      <ul className="grid grid-cols-4 pb-[env(safe-area-inset-bottom)]">
+      <ul className="grid grid-cols-3 pb-[env(safe-area-inset-bottom)]">
         {ITEMS.map(({ href, label, icon: Icon }) => {
           const active = pathname === href;
           return (
