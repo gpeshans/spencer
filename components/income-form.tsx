@@ -3,25 +3,26 @@
 import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
 
+import { useIncomeCategories } from '@/components/categories-provider';
 import { Button } from '@/components/ui/button';
 import { saveIncome } from '@/lib/actions/income';
-import { INCOME_CATEGORIES } from '@/lib/categories';
 import { formatMoney, parseAmount } from '@/lib/format';
 
 const toNumber = (s: string | undefined) => parseAmount(s ?? '') || 0;
 
 export function IncomeForm({ current }: { current: Record<string, number> }) {
+  const categories = useIncomeCategories();
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(
-      INCOME_CATEGORIES.map((c) => [c.key, current[c.key] ? String(current[c.key]) : '']),
+      categories.map((c) => [c.key, current[c.key] ? String(current[c.key]) : '']),
     ),
   );
   const [isPending, startTransition] = useTransition();
 
-  const total = INCOME_CATEGORIES.reduce((s, c) => s + toNumber(values[c.key]), 0);
+  const total = categories.reduce((s, c) => s + toNumber(values[c.key]), 0);
 
   function save() {
-    const items = INCOME_CATEGORIES.map((c) => ({ category: c.key, amount: toNumber(values[c.key]) }));
+    const items = categories.map((c) => ({ category: c.key, amount: toNumber(values[c.key]) }));
     startTransition(async () => {
       const res = await saveIncome(items);
       if (res.error) toast.error(res.error);
@@ -31,7 +32,7 @@ export function IncomeForm({ current }: { current: Record<string, number> }) {
 
   return (
     <div className="flex flex-col gap-4">
-      {INCOME_CATEGORIES.map((c) => {
+      {categories.map((c) => {
         const Icon = c.icon;
         return (
           <div key={c.key} className="flex items-center gap-3">

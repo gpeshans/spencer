@@ -1,76 +1,119 @@
 import type { LucideIcon } from 'lucide-react';
-import {
-  Baby,
-  Building2,
-  Car,
-  Clapperboard,
-  Coins,
-  Gift,
-  HeartPulse,
-  House,
-  MoreHorizontal,
-  Plane,
-  ShoppingBag,
-  ShoppingCart,
-  TrendingUp,
-  UtensilsCrossed,
-  Wallet,
-  Zap,
-} from 'lucide-react';
 
+import { iconByName } from '@/lib/category-icons';
+
+// Categories are user-editable and live per-group in the database (see
+// supabase/migrations/0005_editable_categories.sql). This module is now the
+// type + helper layer around them: bucket metadata, the serializable DTO shape,
+// the DTO→render converter, and the default seed lists used as a fallback when a
+// group has no categories yet. Runtime lists come from lib/categories-data.ts
+// (server) and the CategoriesProvider (client).
+
+// ── Buckets ──────────────────────────────────────────────────────────────────
+// The four hidden umbrella buckets that group expense categories, so we can track
+// how income is distributed vs. targets. The set is fixed; labels + targets are
+// editable (bucket_targets), and categories move between them.
+
+export type BucketKey = 'needs' | 'wants' | 'savings' | 'emergency';
+
+export type Bucket = {
+  key: BucketKey;
+  label: string;
+  /** Default share of income this bucket should get, in percent (sums to 100). */
+  defaultTargetPct: number;
+};
+
+export const BUCKETS: Bucket[] = [
+  { key: 'needs', label: 'Needs', defaultTargetPct: 20 },
+  { key: 'wants', label: 'Wants', defaultTargetPct: 10 },
+  { key: 'savings', label: 'Savings & Investments', defaultTargetPct: 40 },
+  { key: 'emergency', label: 'Emergency', defaultTargetPct: 30 },
+];
+
+export const BUCKET_BY_KEY = Object.fromEntries(BUCKETS.map((b) => [b.key, b])) as Record<
+  BucketKey,
+  Bucket
+>;
+
+export const BUCKET_KEYS = BUCKETS.map((b) => b.key);
+
+// ── Categories ───────────────────────────────────────────────────────────────
+
+export type CategoryKind = 'expense' | 'income';
+
+/**
+ * A category as stored/transported — icon is a lucide *name*, so the shape is
+ * serializable and can cross the server→client (RSC) boundary safely.
+ */
+export type CategoryDTO = {
+  id?: string;
+  kind: CategoryKind;
+  key: string;
+  label: string;
+  iconName: string;
+  color: string;
+  bucket: BucketKey | null; // expense only
+  sort: number;
+  active: boolean;
+};
+
+/** A category resolved for rendering — icon is a component. */
 export type Category = {
   key: string;
   label: string;
   icon: LucideIcon;
-  /** Hex color used by the category pie chart. */
   color: string;
+  bucket: BucketKey | null;
 };
 
-// Fixed, predefined lists (single source of truth for the whole app).
-// Colors are a spread-out categorical palette used as a SECONDARY cue on the
-// charts — identity is always carried by text labels + legend, never color
-// alone (11 categories can't be made CVD-safe by color; see the pie/legend).
-export const EXPENSE_CATEGORIES: Category[] = [
-  { key: 'groceries', label: 'Groceries', icon: ShoppingCart, color: '#2f9e44' },
-  { key: 'dining', label: 'Dining', icon: UtensilsCrossed, color: '#e8590c' },
-  { key: 'transport', label: 'Transport', icon: Car, color: '#1c7ed6' },
-  { key: 'housing', label: 'Housing', icon: House, color: '#6741d9' },
-  { key: 'utilities', label: 'Utilities', icon: Zap, color: '#f59f00' },
-  { key: 'health', label: 'Health', icon: HeartPulse, color: '#e03131' },
-  { key: 'shopping', label: 'Shopping', icon: ShoppingBag, color: '#e64980' },
-  { key: 'entertainment', label: 'Entertainment', icon: Clapperboard, color: '#ae3ec9' },
-  { key: 'kids', label: 'Kids', icon: Baby, color: '#9c6644' },
-  { key: 'travel', label: 'Travel', icon: Plane, color: '#15aabf' },
-  { key: 'other', label: 'Other', icon: MoreHorizontal, color: '#868e96' },
-];
+const FALLBACK_COLOR = '#64748b';
 
-export const INCOME_CATEGORIES: Category[] = [
-  { key: 'salary', label: 'Salary', icon: Wallet, color: '#2f9e44' },
-  { key: 'bonus', label: 'Bonus', icon: Gift, color: '#ae3ec9' },
-  { key: 'rental', label: 'Rental', icon: Building2, color: '#1c7ed6' },
-  { key: 'investments', label: 'Investments', icon: TrendingUp, color: '#f59f00' },
-  { key: 'other', label: 'Other', icon: Coins, color: '#868e96' },
-];
-
-const indexBy = (list: Category[]): Record<string, Category> =>
-  Object.fromEntries(list.map((c) => [c.key, c]));
-
-export const EXPENSE_BY_KEY = indexBy(EXPENSE_CATEGORIES);
-export const INCOME_BY_KEY = indexBy(INCOME_CATEGORIES);
-
-export const EXPENSE_CATEGORY_KEYS = EXPENSE_CATEGORIES.map((c) => c.key);
-export const INCOME_CATEGORY_KEYS = INCOME_CATEGORIES.map((c) => c.key);
-
-const FALLBACK: Category = { key: 'other', label: 'Other', icon: MoreHorizontal, color: '#64748b' };
-
-export function expenseCategory(key: string): Category {
-  return EXPENSE_BY_KEY[key] ?? { ...FALLBACK, key, label: key };
+export function toCategory(dto: CategoryDTO): Category {
+  return {
+    key: dto.key,
+    label: dto.label,
+    icon: iconByName(dto.iconName),
+    color: dto.color,
+    bucket: dto.bucket,
+  };
 }
 
-export function incomeCategory(key: string): Category {
-  return INCOME_BY_KEY[key] ?? { ...FALLBACK, key, label: key, icon: Coins };
+/** Resolve a key against a by-key map, with a readable fallback for unknown keys. */
+export function resolveCategory(byKey: Record<string, Category>, key: string): Category {
+  return (
+    byKey[key] ?? { key, label: key, icon: iconByName('circle'), color: FALLBACK_COLOR, bucket: null }
+  );
 }
 
+// ── Default seed lists ────────────────────────────────────────────────────────
+// Fallback used only when a group has no categories yet. Mirrors the seed in
+// supabase/migrations/0005_editable_categories.sql.
+export const DEFAULT_EXPENSE_CATEGORIES: CategoryDTO[] = [
+  { kind: 'expense', key: 'groceries', label: 'Groceries', iconName: 'shopping-cart', color: '#2f9e44', bucket: 'needs', sort: 10, active: true },
+  { kind: 'expense', key: 'dining', label: 'Dining', iconName: 'utensils-crossed', color: '#e8590c', bucket: 'wants', sort: 20, active: true },
+  { kind: 'expense', key: 'transport', label: 'Transport', iconName: 'car', color: '#1c7ed6', bucket: 'needs', sort: 30, active: true },
+  { kind: 'expense', key: 'housing', label: 'Housing', iconName: 'house', color: '#6741d9', bucket: 'needs', sort: 40, active: true },
+  { kind: 'expense', key: 'utilities', label: 'Utilities', iconName: 'zap', color: '#f59f00', bucket: 'needs', sort: 50, active: true },
+  { kind: 'expense', key: 'health', label: 'Health', iconName: 'heart-pulse', color: '#e03131', bucket: 'needs', sort: 60, active: true },
+  { kind: 'expense', key: 'shopping', label: 'Shopping', iconName: 'shopping-bag', color: '#e64980', bucket: 'wants', sort: 70, active: true },
+  { kind: 'expense', key: 'entertainment', label: 'Entertainment', iconName: 'clapperboard', color: '#ae3ec9', bucket: 'wants', sort: 80, active: true },
+  { kind: 'expense', key: 'kids', label: 'Kids', iconName: 'baby', color: '#9c6644', bucket: 'needs', sort: 90, active: true },
+  { kind: 'expense', key: 'travel', label: 'Travel', iconName: 'plane', color: '#15aabf', bucket: 'wants', sort: 100, active: true },
+  { kind: 'expense', key: 'savings', label: 'Savings', iconName: 'piggy-bank', color: '#099268', bucket: 'savings', sort: 110, active: true },
+  { kind: 'expense', key: 'investments', label: 'Investments', iconName: 'trending-up', color: '#3b5bdb', bucket: 'savings', sort: 120, active: true },
+  { kind: 'expense', key: 'emergency', label: 'Emergency', iconName: 'umbrella', color: '#c2255c', bucket: 'emergency', sort: 130, active: true },
+  { kind: 'expense', key: 'other', label: 'Other', iconName: 'more-horizontal', color: '#868e96', bucket: 'wants', sort: 140, active: true },
+];
+
+export const DEFAULT_INCOME_CATEGORIES: CategoryDTO[] = [
+  { kind: 'income', key: 'salary', label: 'Salary', iconName: 'wallet', color: '#2f9e44', bucket: null, sort: 10, active: true },
+  { kind: 'income', key: 'bonus', label: 'Bonus', iconName: 'gift', color: '#ae3ec9', bucket: null, sort: 20, active: true },
+  { kind: 'income', key: 'rental', label: 'Rental', iconName: 'building-2', color: '#1c7ed6', bucket: null, sort: 30, active: true },
+  { kind: 'income', key: 'investments', label: 'Investments', iconName: 'trending-up', color: '#f59f00', bucket: null, sort: 40, active: true },
+  { kind: 'income', key: 'other', label: 'Other', iconName: 'coins', color: '#868e96', bucket: null, sort: 50, active: true },
+];
+
+// ── Color contrast helper (unchanged) ────────────────────────────────────────
 // Readable text color (near-black or white) for a solid category-color fill —
 // picks whichever gives higher WCAG contrast, so chip labels stay legible.
 function channelLuminance(v: number): number {

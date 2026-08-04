@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 
-import { INCOME_BY_KEY } from '@/lib/categories';
+import { getCategories } from '@/lib/categories-data';
 import { currentMonthStartISO } from '@/lib/format';
 import { getProfile } from '@/lib/session';
 
@@ -18,8 +18,11 @@ export async function saveIncome(
   // leaving previous months' reports unchanged.
   const effective_from = currentMonthStartISO();
 
+  const { income } = await getCategories();
+  const allowed = new Set(income.filter((c) => c.active).map((c) => c.key));
+
   const rows = items
-    .filter((i) => INCOME_BY_KEY[i.category] && Number.isFinite(i.amount) && i.amount >= 0)
+    .filter((i) => allowed.has(i.category) && Number.isFinite(i.amount) && i.amount >= 0)
     .map((i) => ({
       group_id: ctx.profile.group_id, // explicit so the upsert conflict target is complete
       category: i.category,

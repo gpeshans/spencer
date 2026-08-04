@@ -1,13 +1,16 @@
-import { expenseCategory } from '@/lib/categories';
+'use client';
+
+import { useExpenseResolver } from '@/components/categories-provider';
 import { formatMoney } from '@/lib/format';
 import type { CategoryTotal } from '@/types/models';
 
 /** Text-first category breakdown: color swatch + label + % + amount. */
 export function CategoryBreakdown({ data, total }: { data: CategoryTotal[]; total: number }) {
+  const resolve = useExpenseResolver();
   return (
     <div className="flex flex-col">
       {data.map((c) => {
-        const cat = expenseCategory(c.category);
+        const cat = resolve(c.category);
         const pct = total > 0 ? Math.round((c.total / total) * 100) : 0;
         return (
           <div key={c.category} className="flex items-center gap-3 py-1.5">

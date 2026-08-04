@@ -18,8 +18,17 @@ and yearly overviews. Google sign-in is restricted to an email allow-list.
   (`group_id` / `user_id` are filled automatically from the session).
 - **Income** is **effective-dated**: editing it applies from the current month
   onward; past months keep their own figures.
-- Categories are **fixed predefined lists** (separate sets for expense vs income) —
-  edit them in `lib/categories.ts`.
+- Categories are **per-group and editable in-app** (Profile menu → _Categories &
+  budget_): add / rename / retire expense & income categories, pick an icon + color,
+  and assign each expense category to a bucket. They live in `public.categories`
+  (seeded with sensible defaults); historical spendings keep resolving by `key`, so
+  retiring a category just archives it. Types/helpers stay in `lib/categories.ts`.
+- Every expense category rolls up into one of four hidden **buckets** — _needs,
+  wants, savings & investments, emergency_ — to track how income is distributed vs.
+  goals (default **20 / 10 / 40 / 30 %**, editable on the same screen). The bucket is
+  stored on every spending row, auto-filled by a DB trigger from `categories.bucket`;
+  per-group targets live in `bucket_targets`. See
+  `supabase/migrations/0004_buckets.sql` + `0005_editable_categories.sql`.
 - Currency/format defaults to **EUR / de-DE** (`NEXT_PUBLIC_CURRENCY`, `NEXT_PUBLIC_LOCALE`).
 
 ## Setup
@@ -116,11 +125,12 @@ app/
     overview/       Monthly overview (pie + day-grouped list)
     year/           Yearly overview (monthly bars + category breakdown)
     income/         Monthly income editor + sign out
+    settings/       Categories, buckets & target-distribution editor
   login/            Google sign-in
   auth/callback/    OAuth code exchange + allow-list enforcement
 proxy.ts            session refresh + soft redirect (Next 16 Proxy)
 lib/                supabase clients, auth, categories, format, reports, actions
-supabase/migrations/0001_init.sql   schema + RLS + triggers
+supabase/migrations/           schema, RLS, triggers, buckets, categories (0001 → 0005)
 types/              hand-written DB types + view models
 ```
 

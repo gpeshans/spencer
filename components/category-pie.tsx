@@ -2,26 +2,28 @@
 
 import { Label, Pie, PieChart } from 'recharts';
 
+import { useExpenseResolver } from '@/components/categories-provider';
 import {
   type ChartConfig,
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
 } from '@/components/ui/chart';
-import { expenseCategory } from '@/lib/categories';
 import { formatMoney } from '@/lib/format';
 import type { CategoryTotal } from '@/types/models';
 
 export function CategoryPie({ data, total }: { data: CategoryTotal[]; total: number }) {
+  const resolve = useExpenseResolver();
+
   const chartData = data.map((d) => ({
     category: d.category,
     value: d.total,
-    fill: expenseCategory(d.category).color,
+    fill: resolve(d.category).color,
   }));
 
   const config: ChartConfig = Object.fromEntries(
     data.map((d) => {
-      const cat = expenseCategory(d.category);
+      const cat = resolve(d.category);
       return [d.category, { label: cat.label, color: cat.color }];
     }),
   );
@@ -37,7 +39,7 @@ export function CategoryPie({ data, total }: { data: CategoryTotal[]; total: num
               formatter={(value, name) => (
                 <div className="flex w-full items-center justify-between gap-3">
                   <span className="text-muted-foreground">
-                    {expenseCategory(String(name)).label}
+                    {resolve(String(name)).label}
                   </span>
                   <span className="font-medium tabular-nums text-foreground">
                     {formatMoney(Number(value))}

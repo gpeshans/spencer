@@ -1,7 +1,7 @@
 'use client';
 
 import { Menu } from '@base-ui/react/menu';
-import { Download, LogOut, Monitor, Moon, Sun, Users } from 'lucide-react';
+import { Download, LogOut, Monitor, Moon, SlidersHorizontal, Sun, Users } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, useSyncExternalStore } from 'react';
@@ -140,6 +140,13 @@ export function UserMenu({
                 </div>
               ))}
             </div>
+
+            <Menu.Separator className="my-1.5 h-px bg-border" />
+
+            <Menu.Item className={itemClass} onClick={() => router.push('/settings')}>
+              <SlidersHorizontal className="size-4 text-muted-foreground" />
+              Categories &amp; budget
+            </Menu.Item>
 
             {(install.canPrompt || install.showIOSHint) && (
               <>

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 
-import { EXPENSE_BY_KEY } from '@/lib/categories';
+import { getCategories } from '@/lib/categories-data';
 import { getAuthed } from '@/lib/session';
 
 type Result = { error: string | null };
@@ -24,7 +24,10 @@ export async function addSpending(input: {
 
   const amount = Math.round(Number(input.amount) * 100) / 100;
   if (!Number.isFinite(amount) || amount <= 0) return { error: 'Enter a valid amount' };
-  if (!EXPENSE_BY_KEY[input.category]) return { error: 'Pick a category' };
+  const { expense } = await getCategories();
+  if (!expense.some((c) => c.active && c.key === input.category)) {
+    return { error: 'Pick a category' };
+  }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.spentOn)) return { error: 'Invalid date' };
 
   // group_id + user_id are filled by DB column defaults from the session.

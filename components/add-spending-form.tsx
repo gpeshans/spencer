@@ -3,11 +3,12 @@
 import { useOptimistic, useRef, useState, useTransition } from 'react';
 import { toast } from 'sonner';
 
+import { useExpenseCategories } from '@/components/categories-provider';
 import { SpendingRow } from '@/components/spending-row';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { addSpending } from '@/lib/actions/spendings';
-import { EXPENSE_CATEGORIES, textOn } from '@/lib/categories';
+import { textOn } from '@/lib/categories';
 import { parseAmount } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { AuthoredSpending } from '@/types/models';
@@ -24,6 +25,7 @@ export function AddSpendingForm({
   const [description, setDescription] = useState('');
   const [date, setDate] = useState(today);
   const [isPending, startTransition] = useTransition();
+  const categories = useExpenseCategories();
   const amountRef = useRef<HTMLInputElement>(null);
   const [optimisticRecent, addOptimistic] = useOptimistic<AuthoredSpending[], AuthoredSpending>(
     recent,
@@ -48,6 +50,7 @@ export function AddSpendingForm({
       user_id: '',
       amount: amt,
       category,
+      bucket: categories.find((c) => c.key === category)?.bucket ?? 'wants',
       description: description.trim(),
       spent_on: date,
       created_at: nowIso,
@@ -96,7 +99,7 @@ export function AddSpendingForm({
         <div>
           <p className="mb-2 text-sm font-medium text-muted-foreground">Category</p>
           <div className="grid grid-cols-4 gap-2">
-            {EXPENSE_CATEGORIES.map((c) => {
+            {categories.map((c) => {
               const Icon = c.icon;
               const active = category === c.key;
               return (
