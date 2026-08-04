@@ -2,10 +2,12 @@ import { addMonths, format, isValid, parse, parseISO, startOfMonth, subMonths } 
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 
+import { BucketGoals } from '@/components/bucket-goals';
 import { CategoryBreakdown } from '@/components/category-breakdown';
 import { CategoryPie } from '@/components/category-pie';
 import { SpendingDayList } from '@/components/spending-day-list';
 import { Stat } from '@/components/stat';
+import { getBucketTargets } from '@/lib/categories-data';
 import { currentMonthStartISO, formatMoney, formatMonthTitle } from '@/lib/format';
 import { getMonthData } from '@/lib/reports';
 
@@ -24,7 +26,7 @@ export default async function OverviewPage({
 }) {
   const { m } = await searchParams;
   const month = parseMonth(m);
-  const data = await getMonthData(month);
+  const [data, targets] = await Promise.all([getMonthData(month), getBucketTargets()]);
 
   const monthKey = format(month, 'yyyy-MM');
   const currentKey = currentMonthStartISO().slice(0, 7);
@@ -78,6 +80,10 @@ export default async function OverviewPage({
         </div>
       ) : (
         <>
+          <section>
+            <h2 className="mb-3 text-sm font-medium text-muted-foreground">Buckets vs. goals</h2>
+            <BucketGoals data={data.byBucket} income={data.incomeTotal} targets={targets} />
+          </section>
           <CategoryPie data={data.byCategory} total={data.spentTotal} />
           <CategoryBreakdown data={data.byCategory} total={data.spentTotal} />
           <div>

@@ -2,9 +2,11 @@ import { isValid, parse, parseISO, startOfYear } from 'date-fns';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 
+import { BucketGoals } from '@/components/bucket-goals';
 import { CategoryBreakdown } from '@/components/category-breakdown';
 import { Stat } from '@/components/stat';
 import { YearBars } from '@/components/year-bars';
+import { getBucketTargets } from '@/lib/categories-data';
 import { formatMoney, todayISO } from '@/lib/format';
 import { getYearData } from '@/lib/reports';
 
@@ -23,7 +25,7 @@ export default async function YearPage({
 }) {
   const { y } = await searchParams;
   const year = parseYear(y);
-  const data = await getYearData(year);
+  const [data, targets] = await Promise.all([getYearData(year), getBucketTargets()]);
 
   const yearNum = year.getFullYear();
   const currentYear = Number(todayISO().slice(0, 4));
@@ -77,6 +79,10 @@ export default async function YearPage({
           <div>
             <h2 className="mb-2 text-sm font-medium text-muted-foreground">Spending by month</h2>
             <YearBars data={data.byMonth} />
+          </div>
+          <div>
+            <h2 className="mb-3 text-sm font-medium text-muted-foreground">Buckets vs. goals</h2>
+            <BucketGoals data={data.byBucket} income={data.incomeTotal} targets={targets} />
           </div>
           <div>
             <h2 className="mb-1 text-sm font-medium text-muted-foreground">By category</h2>
