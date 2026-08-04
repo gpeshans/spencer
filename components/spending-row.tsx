@@ -1,4 +1,6 @@
-import { expenseCategory } from '@/lib/categories';
+'use client';
+
+import { useExpenseResolver } from '@/components/categories-provider';
 import { formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -17,7 +19,7 @@ export function SpendingRow({
   dimmed?: boolean;
   trailing?: React.ReactNode;
 }) {
-  const cat = expenseCategory(category);
+  const cat = useExpenseResolver()(category);
   const Icon = cat.icon;
 
   return (

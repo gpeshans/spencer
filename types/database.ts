@@ -54,6 +54,7 @@ export interface Database {
           description: string;
           amount: number;
           category: string;
+          bucket: Database['public']['Enums']['bucket'];
           spent_on: string;
           created_at: string;
           updated_at: string;
@@ -65,6 +66,7 @@ export interface Database {
           description?: string;
           amount: number;
           category: string;
+          bucket?: Database['public']['Enums']['bucket']; // set by trigger from category
           spent_on?: string;
           created_at?: string;
           updated_at?: string;
@@ -76,6 +78,7 @@ export interface Database {
           description?: string;
           amount?: number;
           category?: string;
+          bucket?: Database['public']['Enums']['bucket']; // re-derived by trigger
           spent_on?: string;
           created_at?: string;
           updated_at?: string;
@@ -112,10 +115,81 @@ export interface Database {
         };
         Relationships: [];
       };
+      categories: {
+        // Per-group, editable expense/income categories (source of truth for the
+        // category lists; historical spendings/income rows reference `key`).
+        Row: {
+          id: string;
+          group_id: string;
+          kind: 'expense' | 'income';
+          key: string;
+          label: string;
+          icon_name: string;
+          color: string;
+          bucket: Database['public']['Enums']['bucket'] | null; // expense only
+          sort: number;
+          active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          group_id?: string; // defaulted to current_group_id()
+          kind: 'expense' | 'income';
+          key: string;
+          label: string;
+          icon_name?: string;
+          color?: string;
+          bucket?: Database['public']['Enums']['bucket'] | null;
+          sort?: number;
+          active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          group_id?: string;
+          kind?: 'expense' | 'income';
+          key?: string;
+          label?: string;
+          icon_name?: string;
+          color?: string;
+          bucket?: Database['public']['Enums']['bucket'] | null;
+          sort?: number;
+          active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      bucket_targets: {
+        // Per-group target share of income per bucket (percent).
+        Row: {
+          group_id: string;
+          bucket: Database['public']['Enums']['bucket'];
+          target_pct: number;
+          updated_at: string;
+        };
+        Insert: {
+          group_id?: string; // defaulted to current_group_id()
+          bucket: Database['public']['Enums']['bucket'];
+          target_pct: number;
+          updated_at?: string;
+        };
+        Update: {
+          group_id?: string;
+          bucket?: Database['public']['Enums']['bucket'];
+          target_pct?: number;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
-    Enums: Record<string, never>;
+    Enums: {
+      bucket: 'needs' | 'wants' | 'savings' | 'emergency';
+    };
     CompositeTypes: Record<string, never>;
   };
 }
@@ -127,3 +201,5 @@ export type Group = Tables<'groups'>;
 export type Profile = Tables<'profiles'>;
 export type Spending = Tables<'spendings'>;
 export type Income = Tables<'income'>;
+export type CategoryRow = Tables<'categories'>;
+export type BucketTarget = Tables<'bucket_targets'>;
