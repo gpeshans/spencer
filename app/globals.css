@@ -139,6 +139,14 @@
   body {
     overscroll-behavior-y: none;
   }
+  /* Tailwind v4 resets <button> to the default arrow cursor; restore the pointer
+     for interactive controls. Elements that opt out with an explicit cursor-*
+     utility (e.g. the menu's cursor-default items) still win. */
+  button:not(:disabled),
+  [role='button']:not(:disabled),
+  label:has(> input[type='color']) {
+    cursor: pointer;
+  }
   /* Keep form controls >=16px so iOS Safari never auto-zooms on focus. */
   input,
   select,
