@@ -5,6 +5,7 @@ import { createContext, useCallback, useContext, useMemo } from 'react';
 import {
   type Category,
   type CategoryDTO,
+  compareCategories,
   resolveCategory,
   toCategory,
 } from '@/lib/categories';
@@ -36,7 +37,7 @@ export function CategoriesProvider({
 }) {
   const value = useMemo<CategoriesValue>(() => {
     const activeSorted = (list: CategoryDTO[]) =>
-      list.filter((d) => d.active).sort((a, b) => a.sort - b.sort).map(toCategory);
+      list.filter((d) => d.active).sort(compareCategories).map(toCategory);
     return {
       expense: activeSorted(expense),
       income: activeSorted(income),

@@ -87,6 +87,25 @@ export function resolveCategory(byKey: Record<string, Category>, key: string): C
   );
 }
 
+// ── Ordering ─────────────────────────────────────────────────────────────────
+// "Other" is the catch-all, not a peer category, so it's pinned to the end of
+// every list — pickers, the settings manager, and the spend breakdowns — no
+// matter its `sort` or its total. Newly added categories can never push past it.
+
+/** Key of the catch-all category (same slug for both expense and income). */
+export const CATCH_ALL_KEY = 'other';
+
+/** First sort key that pins the catch-all last: 1 for "Other", 0 for the rest. */
+export const catchAllLast = (key: string): number => (key === CATCH_ALL_KEY ? 1 : 0);
+
+/** Order categories by their `sort`, with the catch-all always last. */
+export function compareCategories(
+  a: { key: string; sort: number },
+  b: { key: string; sort: number },
+): number {
+  return catchAllLast(a.key) - catchAllLast(b.key) || a.sort - b.sort;
+}
+
 // ── Default seed lists ────────────────────────────────────────────────────────
 // Fallback used only when a group has no categories yet. Mirrors the seed in
 // supabase/migrations/0005_editable_categories.sql.

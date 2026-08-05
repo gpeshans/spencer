@@ -16,13 +16,17 @@ and yearly overviews. Google sign-in is restricted to an email allow-list.
   scoped to the group via RLS, so adding more families later needs no code changes.
 - **Spendings**: description, amount, category, date, and who entered it
   (`group_id` / `user_id` are filled automatically from the session).
-- **Income** is **effective-dated**: editing it applies from the current month
-  onward; past months keep their own figures.
+- **Income** is **effective-dated** and carries forward: editing it applies from the
+  current month onward; past months keep their own figures. A row back-dated far
+  enough (e.g. `2000-01-01`) therefore acts as a **standing income** that applies to
+  every month until you override it.
 - Categories are **per-group and editable in-app** (Profile menu → _Categories &
   budget_): add / rename / retire expense & income categories, pick an icon + color,
   and assign each expense category to a bucket. They live in `public.categories`
   (seeded with sensible defaults); historical spendings keep resolving by `key`, so
-  retiring a category just archives it. Types/helpers stay in `lib/categories.ts`.
+  retiring a category just archives it. Types/helpers stay in `lib/categories.ts`,
+  which also pins the catch-all **Other** to the end of every list (pickers, settings,
+  breakdowns) regardless of its `sort` or its total.
 - Every expense category rolls up into one of four hidden **buckets** — _needs,
   wants, savings & investments, emergency_ — to track how income is distributed vs.
   goals (default **20 / 10 / 40 / 30 %**, editable on the same screen). The bucket is

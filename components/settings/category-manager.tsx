@@ -8,9 +8,12 @@ import { CategoryIcon } from '@/components/category-icon';
 import { CategoryForm } from '@/components/settings/category-form';
 import { Button } from '@/components/ui/button';
 import { setCategoryActive } from '@/lib/actions/categories';
-import { BUCKET_BY_KEY, type CategoryDTO, type CategoryKind } from '@/lib/categories';
-
-const bySort = (a: CategoryDTO, b: CategoryDTO) => a.sort - b.sort;
+import {
+  BUCKET_BY_KEY,
+  type CategoryDTO,
+  type CategoryKind,
+  compareCategories,
+} from '@/lib/categories';
 
 export function CategoryManager({
   kind,
@@ -23,8 +26,8 @@ export function CategoryManager({
   const [editing, setEditing] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const active = categories.filter((c) => c.active).sort(bySort);
-  const archived = categories.filter((c) => !c.active).sort(bySort);
+  const active = categories.filter((c) => c.active).sort(compareCategories);
+  const archived = categories.filter((c) => !c.active).sort(compareCategories);
   const title = kind === 'expense' ? 'Expense categories' : 'Income categories';
 
   async function toggle(c: CategoryDTO) {

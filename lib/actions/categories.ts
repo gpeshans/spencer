@@ -56,7 +56,8 @@ export async function createCategory(input: CategoryInput): Promise<Result> {
   const key = slugify(input.label);
   if (!key) return { error: 'Enter a name with letters or numbers' };
 
-  // Append to the end of its list (max sort + 10).
+  // Append to the end of its list (max sort + 10). "Other" is pinned last at
+  // render time (compareCategories), so a new category still lands above it.
   const { data: last } = await authed.supabase
     .from('categories')
     .select('sort')

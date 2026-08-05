@@ -6,6 +6,7 @@ import {
   BUCKETS,
   type BucketKey,
   type CategoryDTO,
+  compareCategories,
   DEFAULT_EXPENSE_CATEGORIES,
   DEFAULT_INCOME_CATEGORIES,
 } from '@/lib/categories';
@@ -42,8 +43,8 @@ export const getCategories = cache(async (): Promise<CategoryLists> => {
     return { expense: DEFAULT_EXPENSE_CATEGORIES, income: DEFAULT_INCOME_CATEGORIES };
   }
   return {
-    expense: rows.filter((r) => r.kind === 'expense').map(toDTO),
-    income: rows.filter((r) => r.kind === 'income').map(toDTO),
+    expense: rows.filter((r) => r.kind === 'expense').map(toDTO).sort(compareCategories),
+    income: rows.filter((r) => r.kind === 'income').map(toDTO).sort(compareCategories),
   };
 });
 
