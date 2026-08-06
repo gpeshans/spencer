@@ -82,7 +82,12 @@ export default async function OverviewPage({
         <>
           <section>
             <h2 className="mb-3 text-sm font-medium text-muted-foreground">Buckets vs. goals</h2>
-            <BucketGoals data={data.byBucket} income={data.incomeTotal} targets={targets} />
+            <BucketGoals
+              data={data.byBucket}
+              income={data.incomeTotal}
+              targets={targets}
+              spendings={data.spendings}
+            />
           </section>
           <CategoryPie data={data.byCategory} total={data.spentTotal} />
           <CategoryBreakdown data={data.byCategory} total={data.spentTotal} />

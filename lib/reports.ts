@@ -3,9 +3,9 @@ import 'server-only';
 import { addMonths, startOfMonth, startOfYear } from 'date-fns';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { catchAllLast } from '@/lib/categories';
 import { isoDate, monthRange, todayISO, yearRange } from '@/lib/format';
 import { createClient } from '@/lib/supabase/server';
+import { totalsByCategory } from '@/lib/totals';
 import type { Database, Income, Spending } from '@/types/database';
 import type { AuthoredSpending, BucketTotal, CategoryTotal } from '@/types/models';
 
@@ -25,14 +25,6 @@ function attachAuthors(
   authors: Map<string, string>,
 ): AuthoredSpending[] {
   return (rows ?? []).map((r) => ({ ...r, authorName: authors.get(r.user_id) ?? 'Member' }));
-}
-
-function totalsByCategory(rows: { category: string; amount: number }[]): CategoryTotal[] {
-  const m = new Map<string, number>();
-  rows.forEach((r) => m.set(r.category, (m.get(r.category) ?? 0) + Number(r.amount)));
-  return [...m.entries()]
-    .map(([category, total]) => ({ category, total }))
-    .sort((a, b) => catchAllLast(a.category) - catchAllLast(b.category) || b.total - a.total);
 }
 
 function totalsByBucket(rows: { bucket: string; amount: number }[]): BucketTotal[] {
