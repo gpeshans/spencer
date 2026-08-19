@@ -66,6 +66,21 @@ export function parseAmount(raw: string): number {
   return Number.isFinite(n) ? n : NaN;
 }
 
+/**
+ * A stored amount rendered for an editable input: locale decimals, no currency
+ * symbol and no grouping separators, so it round-trips through parseAmount()
+ * and stays easy to retype. 42.5 -> "42,50" (de-DE).
+ */
+export function formatAmountInput(amount: number | string): string {
+  const n = typeof amount === 'string' ? Number(amount) : amount;
+  if (!Number.isFinite(n)) return '';
+  return new Intl.NumberFormat(LOCALE, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+    useGrouping: false,
+  }).format(n);
+}
+
 /** A Postgres `date` string ('yyyy-MM-dd') or a Date -> Date. */
 export function toDate(d: string | Date): Date {
   return typeof d === 'string' ? parseISO(d) : d;

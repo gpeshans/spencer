@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { cache } from 'react';
 import type { SupabaseClient, User } from '@supabase/supabase-js';
 
 import { isAllowed } from '@/lib/auth';
@@ -23,8 +24,15 @@ export async function getAuthed(): Promise<Authed | null> {
   return { supabase, user };
 }
 
-/** Like getAuthed(), plus the user's profile (group_id, display_name, ...). */
-export async function getProfile(): Promise<(Authed & { profile: Profile }) | null> {
+/**
+ * Like getAuthed(), plus the user's profile (group_id, display_name, ...).
+ * React-cached so the (app) layout's auth guard and a page that also needs the
+ * group both resolve from one round trip. The cache is per-request, so it can
+ * never carry across users.
+ */
+export const getProfile = cache(async function getProfile(): Promise<
+  (Authed & { profile: Profile }) | null
+> {
   const authed = await getAuthed();
   if (!authed) return null;
   const { data: profile } = await authed.supabase
@@ -34,14 +42,15 @@ export async function getProfile(): Promise<(Authed & { profile: Profile }) | nu
     .single();
   if (!profile) return null;
   return { ...authed, profile };
-}
+});
 
 /**
  * getProfile(), plus the user's group (id + name) and everyone else in it.
- * Powers the header's profile menu + family list; the group and members are
- * readable under the group-scoped RLS SELECT policies.
+ * Powers the header's profile menu + family list, and the "Split by member"
+ * charts on the month/year screens; the group and members are readable under
+ * the group-scoped RLS SELECT policies. React-cached like getProfile().
  */
-export async function getGroupContext(): Promise<
+export const getGroupContext = cache(async function getGroupContext(): Promise<
   | (Authed & {
       profile: Profile;
       group: { id: string; name: string };
@@ -62,4 +71,4 @@ export async function getGroupContext(): Promise<
   ]);
   if (!group) return null;
   return { ...authed, group, members: members ?? [] };
-}
+});

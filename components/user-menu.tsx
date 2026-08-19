@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { initialsFrom } from '@/lib/format';
+import { memberName } from '@/lib/members';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 import type { GroupMember } from '@/types/models';
@@ -21,10 +22,6 @@ const THEMES = [
 
 const itemClass =
   'flex w-full cursor-default items-center gap-3 rounded-lg px-2.5 py-2 text-sm outline-none select-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50';
-
-function displayName(m: GroupMember): string {
-  return m.display_name?.trim() || m.email?.split('@')[0] || 'Member';
-}
 
 export function UserMenu({
   me,
@@ -81,7 +78,7 @@ export function UserMenu({
                 <AvatarFallback>{initialsFrom(me.display_name, me.email)}</AvatarFallback>
               </Avatar>
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{displayName(me)}</p>
+                <p className="truncate text-sm font-medium">{memberName(me)}</p>
                 {me.email ? (
                   <p className="truncate text-xs text-muted-foreground">{me.email}</p>
                 ) : null}
@@ -131,7 +128,7 @@ export function UserMenu({
                       {initialsFrom(m.display_name, m.email)}
                     </AvatarFallback>
                   </Avatar>
-                  <span className="min-w-0 flex-1 truncate text-sm">{displayName(m)}</span>
+                  <span className="min-w-0 flex-1 truncate text-sm">{memberName(m)}</span>
                   {m.id === me.id ? (
                     <span className="rounded-full bg-muted px-1.5 py-0.5 text-[0.65rem] font-medium text-muted-foreground">
                       you

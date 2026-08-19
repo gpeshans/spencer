@@ -8,14 +8,19 @@ and yearly overviews. Google sign-in is restricted to an email allow-list.
 
 - **Next.js 16** (App Router, Turbopack) · **React 19** · **TypeScript**
 - **Supabase** — Postgres, Auth (Google OAuth), row-level security
-- **Tailwind CSS v4** · **shadcn/ui** · **Recharts** (pie now, Sankey-ready later)
+- **Tailwind CSS v4** · **shadcn/ui** · **Recharts** (pie + bars now, Sankey-ready later)
 
 ## How it works (at a glance)
 
 - Every user belongs to a **group** (one "Family" group is seeded). All data is
   scoped to the group via RLS, so adding more families later needs no code changes.
 - **Spendings**: description, amount, category, date, and who entered it
-  (`group_id` / `user_id` are filled automatically from the session).
+  (`group_id` / `user_id` are filled automatically from the session). Tap the
+  pencil on any row — on the monthly list or inside a bucket drill-down — to edit
+  it in a bottom sheet; the trash icon deletes. Both work on **any** row in the
+  group, not just your own (`supabase/migrations/0006_edit_spendings.sql`), and
+  re-categorising a spending re-derives its bucket via the DB trigger. The author
+  is never reassigned.
 - **Income** is **effective-dated** and carries forward: editing it applies from the
   current month onward; past months keep their own figures. A row back-dated far
   enough (e.g. `2000-01-01`) therefore acts as a **standing income** that applies to
@@ -33,6 +38,12 @@ and yearly overviews. Google sign-in is restricted to an email allow-list.
   stored on every spending row, auto-filled by a DB trigger from `categories.bucket`;
   per-group targets live in `bucket_targets`. See
   `supabase/migrations/0004_buckets.sql` + `0005_editable_categories.sql`.
+- **Split by member**: both the monthly and yearly overviews break spend down by
+  who entered it — a donut for the month, twelve stacked bars for the year, each
+  with a legend of avatar / name / share / amount. On the month view a legend row
+  expands into that person's categories and individual spendings. Member colours
+  are assigned by join order (never by who spent more, so the colours hold steady
+  month to month) from the validated palette in `lib/members.ts`.
 - Currency/format defaults to **EUR / de-DE** (`NEXT_PUBLIC_CURRENCY`, `NEXT_PUBLIC_LOCALE`).
 
 ## Setup
@@ -126,20 +137,19 @@ authorized origins to include your production domain.
 app/
   (app)/            protected screens (auth guard + bottom nav)
     page.tsx        Add spending (home)
-    overview/       Monthly overview (pie + day-grouped list)
-    year/           Yearly overview (monthly bars + category breakdown)
+    overview/       Monthly overview (pie + member split + day-grouped list)
+    year/           Yearly overview (monthly bars + category + member split)
     income/         Monthly income editor + sign out
     settings/       Categories, buckets & target-distribution editor
   login/            Google sign-in
   auth/callback/    OAuth code exchange + allow-list enforcement
 proxy.ts            session refresh + soft redirect (Next 16 Proxy)
 lib/                supabase clients, auth, categories, format, reports, actions
-supabase/migrations/           schema, RLS, triggers, buckets, categories (0001 → 0005)
+supabase/migrations/           schema, RLS, triggers, buckets, categories, editing (0001 → 0006)
 types/              hand-written DB types + view models
 ```
 
 ## Notes
 
-- Editing a spending isn't in v1 — tap the trash icon on the monthly list to delete.
 - The PWA is installable (manifest + icons + standalone); there's no offline mode.
 - A Sankey chart is a planned future feature; Recharts (already used) supports it.

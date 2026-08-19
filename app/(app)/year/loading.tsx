@@ -15,6 +15,12 @@ export default function Loading() {
           <Skeleton key={i} className="h-6 w-full" />
         ))}
       </div>
+      <Skeleton className="aspect-[4/3] w-full rounded-xl" />
+      <div className="flex flex-col gap-2">
+        {Array.from({ length: 2 }).map((_, i) => (
+          <Skeleton key={i} className="h-8 w-full" />
+        ))}
+      </div>
     </div>
   );
 }

@@ -5,11 +5,13 @@ import Link from 'next/link';
 import { BucketGoals } from '@/components/bucket-goals';
 import { CategoryBreakdown } from '@/components/category-breakdown';
 import { CategoryPie } from '@/components/category-pie';
+import { MemberSplit } from '@/components/member-split';
 import { SpendingDayList } from '@/components/spending-day-list';
 import { Stat } from '@/components/stat';
 import { getBucketTargets } from '@/lib/categories-data';
 import { currentMonthStartISO, formatMoney, formatMonthTitle } from '@/lib/format';
 import { getMonthData } from '@/lib/reports';
+import { getGroupContext } from '@/lib/session';
 
 function parseMonth(m?: string): Date {
   if (m) {
@@ -26,7 +28,12 @@ export default async function OverviewPage({
 }) {
   const { m } = await searchParams;
   const month = parseMonth(m);
-  const [data, targets] = await Promise.all([getMonthData(month), getBucketTargets()]);
+  // getGroupContext() is React-cached, so this reuses the layout's auth round trip.
+  const [data, targets, ctx] = await Promise.all([
+    getMonthData(month),
+    getBucketTargets(),
+    getGroupContext(),
+  ]);
 
   const monthKey = format(month, 'yyyy-MM');
   const currentKey = currentMonthStartISO().slice(0, 7);
@@ -91,6 +98,15 @@ export default async function OverviewPage({
           </section>
           <CategoryPie data={data.byCategory} total={data.spentTotal} />
           <CategoryBreakdown data={data.byCategory} total={data.spentTotal} />
+          <section>
+            <h2 className="mb-3 text-sm font-medium text-muted-foreground">Split by member</h2>
+            <MemberSplit
+              data={data.byMember}
+              members={ctx?.members ?? []}
+              total={data.spentTotal}
+              spendings={data.spendings}
+            />
+          </section>
           <div>
             <h2 className="mb-2 text-sm font-medium text-muted-foreground">All spendings</h2>
             <SpendingDayList spendings={data.spendings} />

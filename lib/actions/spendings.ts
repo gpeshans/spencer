@@ -43,6 +43,48 @@ export async function addSpending(input: {
   return { error: null };
 }
 
+export async function updateSpending(input: {
+  id: string;
+  amount: number;
+  category: string;
+  description: string;
+  spentOn: string;
+}): Promise<Result> {
+  const authed = await getAuthed();
+  if (!authed) return { error: 'Not authorized' };
+
+  const amount = Math.round(Number(input.amount) * 100) / 100;
+  if (!Number.isFinite(amount) || amount <= 0) return { error: 'Enter a valid amount' };
+  // Archived categories are accepted here but not in addSpending: an old row
+  // filed under a since-retired category must stay editable (fixing its amount
+  // shouldn't force re-categorising it). New rows still can't be filed there.
+  const { expense } = await getCategories();
+  if (!expense.some((c) => c.key === input.category)) {
+    return { error: 'Pick a category' };
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.spentOn)) return { error: 'Invalid date' };
+
+  // bucket + updated_at are trigger-owned (spendings_set_bucket fires on a
+  // category change), so they're never sent. Selecting the id back is the only
+  // way to notice an update the RLS policy filtered out: those report no error,
+  // just zero rows, which would otherwise look like a successful save.
+  const { data, error } = await authed.supabase
+    .from('spendings')
+    .update({
+      amount,
+      category: input.category,
+      description: input.description.trim().slice(0, 200),
+      spent_on: input.spentOn,
+    })
+    .eq('id', input.id)
+    .select('id');
+  if (error) return { error: error.message };
+  if (!data?.length) return { error: 'Spending not found' };
+
+  revalidateAll();
+  return { error: null };
+}
+
 export async function deleteSpending(id: string): Promise<Result> {
   const authed = await getAuthed();
   if (!authed) return { error: 'Not authorized' };

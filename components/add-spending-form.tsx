@@ -4,13 +4,12 @@ import { useOptimistic, useRef, useState, useTransition } from 'react';
 import { toast } from 'sonner';
 
 import { useExpenseCategories } from '@/components/categories-provider';
+import { SpendingActions } from '@/components/spending-actions';
+import { SpendingFields, type SpendingFieldValues } from '@/components/spending-fields';
 import { SpendingRow } from '@/components/spending-row';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { addSpending } from '@/lib/actions/spendings';
-import { textOn } from '@/lib/categories';
 import { parseAmount } from '@/lib/format';
-import { cn } from '@/lib/utils';
 import type { AuthoredSpending } from '@/types/models';
 
 export function AddSpendingForm({
@@ -20,10 +19,12 @@ export function AddSpendingForm({
   recent: AuthoredSpending[];
   today: string;
 }) {
-  const [amount, setAmount] = useState('');
-  const [category, setCategory] = useState<string | null>(null);
-  const [description, setDescription] = useState('');
-  const [date, setDate] = useState(today);
+  const [values, setValues] = useState<SpendingFieldValues>({
+    amount: '',
+    category: null,
+    description: '',
+    date: today,
+  });
   const [isPending, startTransition] = useTransition();
   const categories = useExpenseCategories();
   const amountRef = useRef<HTMLInputElement>(null);
@@ -32,7 +33,10 @@ export function AddSpendingForm({
     (state, item) => [item, ...state].slice(0, 8),
   );
 
+  const patch = (p: Partial<SpendingFieldValues>) => setValues((v) => ({ ...v, ...p }));
+
   function handleSubmit() {
+    const { amount, category, description, date } = values;
     const amt = parseAmount(amount);
     if (!amt || amt <= 0) {
       toast.error('Enter an amount');
@@ -66,8 +70,7 @@ export function AddSpendingForm({
     });
 
     // Reset for rapid entry; keep category + date, and keep the amount focused.
-    setAmount('');
-    setDescription('');
+    patch({ amount: '', description: '' });
     amountRef.current?.focus();
   }
 
@@ -76,87 +79,36 @@ export function AddSpendingForm({
       <div className="flex flex-col gap-6 px-4 pt-4 pb-[calc(6rem+env(safe-area-inset-bottom))]">
         <h1 className="text-xl font-semibold tracking-tight">Add spending</h1>
 
-        {/* Amount — the primary input */}
-        <div className="flex items-end justify-center gap-1 rounded-2xl bg-muted/50 px-4 py-8">
-          <span className="pb-2 text-2xl font-medium text-muted-foreground">€</span>
-          <input
-            ref={amountRef}
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSubmit();
-            }}
-            inputMode="decimal"
-            enterKeyHint="done"
-            autoFocus
-            placeholder="0"
-            aria-label="Amount"
-            className="w-full max-w-[65%] bg-transparent text-center text-5xl font-semibold tabular-nums outline-none placeholder:text-muted-foreground/40"
-          />
-        </div>
-
-        {/* Category chips */}
-        <div>
-          <p className="mb-2 text-sm font-medium text-muted-foreground">Category</p>
-          <div className="grid grid-cols-4 gap-2">
-            {categories.map((c) => {
-              const Icon = c.icon;
-              const active = category === c.key;
-              return (
-                <button
-                  key={c.key}
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => setCategory(c.key)}
-                  className={cn(
-                    'flex flex-col items-center gap-1 rounded-xl border p-2 text-[11px] font-medium transition active:scale-95',
-                    active ? 'border-transparent' : 'border-border bg-card text-muted-foreground',
-                  )}
-                  style={active ? { backgroundColor: c.color, color: textOn(c.color) } : undefined}
-                >
-                  <Icon className="size-5" />
-                  <span className="w-full truncate text-center">{c.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Note + date */}
-        <div className="flex flex-col gap-3">
-          <Input
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Note (optional)"
-            maxLength={200}
-            className="h-11"
-          />
-          <label className="flex items-center justify-between rounded-lg border px-3 py-3 text-sm">
-            <span className="text-muted-foreground">Date</span>
-            <input
-              type="date"
-              value={date}
-              max={today}
-              onChange={(e) => setDate(e.target.value)}
-              className="bg-transparent text-right font-medium outline-none"
-            />
-          </label>
-        </div>
+        <SpendingFields
+          value={values}
+          onChange={patch}
+          today={today}
+          amountRef={amountRef}
+          autoFocusAmount
+          onAmountEnter={handleSubmit}
+        />
 
         {optimisticRecent.length > 0 && (
           <div>
             <p className="mb-1 text-sm font-medium text-muted-foreground">Recent</p>
             <div className="divide-y">
-              {optimisticRecent.map((s) => (
-                <SpendingRow
-                  key={s.id}
-                  category={s.category}
-                  description={s.description}
-                  amount={s.amount}
-                  authorName={s.authorName}
-                  dimmed={s.id.startsWith('optimistic-')}
-                />
-              ))}
+              {optimisticRecent.map((s) => {
+                // An optimistic row's id is synthetic, so editing or deleting it
+                // would address a row the server doesn't have. It gets its
+                // actions once revalidation swaps it for the stored one.
+                const pending = s.id.startsWith('optimistic-');
+                return (
+                  <SpendingRow
+                    key={s.id}
+                    category={s.category}
+                    description={s.description}
+                    amount={s.amount}
+                    authorName={s.authorName}
+                    dimmed={pending}
+                    trailing={pending ? undefined : <SpendingActions spending={s} />}
+                  />
+                );
+              })}
             </div>
           </div>
         )}
