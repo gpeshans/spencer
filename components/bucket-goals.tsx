@@ -4,7 +4,7 @@ import { ChevronDown } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 import { CategoryBreakdown } from '@/components/category-breakdown';
-import { DeleteSpendingButton } from '@/components/delete-spending-button';
+import { SpendingActions } from '@/components/spending-actions';
 import { SpendingRow } from '@/components/spending-row';
 import { BUCKETS, type Bucket, type BucketKey } from '@/lib/categories';
 import { formatMoney } from '@/lib/format';
@@ -188,7 +188,7 @@ function BucketPanel({
             description={s.description}
             amount={s.amount}
             authorName={s.authorName}
-            trailing={<DeleteSpendingButton id={s.id} />}
+            trailing={<SpendingActions spending={s} />}
           />
         ))}
       </div>

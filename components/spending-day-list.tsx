@@ -1,4 +1,4 @@
-import { DeleteSpendingButton } from '@/components/delete-spending-button';
+import { SpendingActions } from '@/components/spending-actions';
 import { SpendingRow } from '@/components/spending-row';
 import { formatDayHeading, formatMoney } from '@/lib/format';
 import type { AuthoredSpending } from '@/types/models';
@@ -34,7 +34,7 @@ export function SpendingDayList({ spendings }: { spendings: AuthoredSpending[] }
                   description={s.description}
                   amount={s.amount}
                   authorName={s.authorName}
-                  trailing={<DeleteSpendingButton id={s.id} />}
+                  trailing={<SpendingActions spending={s} />}
                 />
               ))}
             </div>

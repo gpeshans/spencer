@@ -4,11 +4,13 @@ import Link from 'next/link';
 
 import { BucketGoals } from '@/components/bucket-goals';
 import { CategoryBreakdown } from '@/components/category-breakdown';
+import { MemberYearBars } from '@/components/member-year-bars';
 import { Stat } from '@/components/stat';
 import { YearBars } from '@/components/year-bars';
 import { getBucketTargets } from '@/lib/categories-data';
 import { formatMoney, todayISO } from '@/lib/format';
 import { getYearData } from '@/lib/reports';
+import { getGroupContext } from '@/lib/session';
 
 function parseYear(y?: string): Date {
   if (y && /^\d{4}$/.test(y)) {
@@ -25,7 +27,12 @@ export default async function YearPage({
 }) {
   const { y } = await searchParams;
   const year = parseYear(y);
-  const [data, targets] = await Promise.all([getYearData(year), getBucketTargets()]);
+  // getGroupContext() is React-cached, so this reuses the layout's auth round trip.
+  const [data, targets, ctx] = await Promise.all([
+    getYearData(year),
+    getBucketTargets(),
+    getGroupContext(),
+  ]);
 
   const yearNum = year.getFullYear();
   const currentYear = Number(todayISO().slice(0, 4));
@@ -87,6 +94,14 @@ export default async function YearPage({
           <div>
             <h2 className="mb-1 text-sm font-medium text-muted-foreground">By category</h2>
             <CategoryBreakdown data={data.byCategory} total={data.spentTotal} />
+          </div>
+          <div>
+            <h2 className="mb-2 text-sm font-medium text-muted-foreground">Split by member</h2>
+            <MemberYearBars
+              byMonth={data.byMonth}
+              data={data.byMember}
+              members={ctx?.members ?? []}
+            />
           </div>
         </>
       )}

@@ -5,9 +5,9 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { isoDate, monthRange, todayISO, yearRange } from '@/lib/format';
 import { createClient } from '@/lib/supabase/server';
-import { totalsByCategory } from '@/lib/totals';
+import { totalsByCategory, totalsByUser } from '@/lib/totals';
 import type { Database, Income, Spending } from '@/types/database';
-import type { AuthoredSpending, BucketTotal, CategoryTotal } from '@/types/models';
+import type { AuthoredSpending, BucketTotal, CategoryTotal, MemberTotal } from '@/types/models';
 
 type DB = SupabaseClient<Database>;
 
@@ -69,6 +69,7 @@ export type MonthData = {
   spendings: AuthoredSpending[];
   byCategory: CategoryTotal[];
   byBucket: BucketTotal[];
+  byMember: MemberTotal[];
   spentTotal: number;
   incomeTotal: number;
 };
@@ -93,15 +94,18 @@ export async function getMonthData(month: Date): Promise<MonthData> {
     spendings,
     byCategory: totalsByCategory(spendings),
     byBucket: totalsByBucket(spendings),
+    byMember: totalsByUser(spendings),
     spentTotal: sum(spendings),
     incomeTotal: incomeTotalForMonth(incomeRows ?? [], start),
   };
 }
 
 export type YearData = {
-  byMonth: { month: number; spent: number; income: number }[];
+  /** `byMember` maps a member id to their spend in that month. */
+  byMonth: { month: number; spent: number; income: number; byMember: Record<string, number> }[];
   byCategory: CategoryTotal[];
   byBucket: BucketTotal[];
+  byMember: MemberTotal[];
   spentTotal: number;
   incomeTotal: number;
 };
@@ -112,13 +116,14 @@ export async function getYearData(year: Date): Promise<YearData> {
   const [{ data: rows }, { data: incomeRows }] = await Promise.all([
     supabase
       .from('spendings')
-      .select('category, amount, spent_on, bucket')
+      .select('user_id, category, amount, spent_on, bucket')
       .gte('spent_on', start)
       .lte('spent_on', end),
     supabase.from('income').select('*').lte('effective_from', end),
   ]);
 
   const spendings = (rows ?? []) as {
+    user_id: string;
     category: string;
     amount: number;
     spent_on: string;
@@ -133,18 +138,23 @@ export async function getYearData(year: Date): Promise<YearData> {
 
   const byMonth = Array.from({ length: 12 }, (_, m) => {
     const monthStartISO = isoDate(startOfMonth(addMonths(startOfYear(year), m)));
-    const spent = sum(spendings.filter((s) => Number(s.spent_on.slice(5, 7)) === m + 1));
+    const rowsThisMonth = spendings.filter((s) => Number(s.spent_on.slice(5, 7)) === m + 1);
+    const spent = sum(rowsThisMonth);
     // Only count income for months that have already occurred, so a partial
     // (current) year compares income-to-date against spend-to-date.
     const hasOccurred = yearNum < nowYear || (yearNum === nowYear && m <= nowMonth);
     const monthIncome = hasOccurred ? incomeTotalForMonth(income, monthStartISO) : 0;
-    return { month: m, spent, income: monthIncome };
+    const byMember = Object.fromEntries(
+      totalsByUser(rowsThisMonth).map((t) => [t.userId, t.total]),
+    );
+    return { month: m, spent, income: monthIncome, byMember };
   });
 
   return {
     byMonth,
     byCategory: totalsByCategory(spendings),
     byBucket: totalsByBucket(spendings),
+    byMember: totalsByUser(spendings),
     spentTotal: sum(spendings),
     incomeTotal: byMonth.reduce((s, m) => s + m.income, 0),
   };
