@@ -4,11 +4,12 @@ import Link from 'next/link';
 
 import { BucketGoals } from '@/components/bucket-goals';
 import { CategoryBreakdown } from '@/components/category-breakdown';
+import { CurrencyViewToggle } from '@/components/currency-view-toggle';
 import { MemberYearBars } from '@/components/member-year-bars';
 import { Stat } from '@/components/stat';
 import { YearBars } from '@/components/year-bars';
 import { getBucketTargets } from '@/lib/categories-data';
-import { formatMoney, todayISO } from '@/lib/format';
+import { todayISO } from '@/lib/format';
 import { getYearData } from '@/lib/reports';
 import { getGroupContext } from '@/lib/session';
 
@@ -67,14 +68,11 @@ export default async function YearPage({
       </div>
 
       {/* Summary */}
+      <CurrencyViewToggle />
       <div className="grid grid-cols-3 gap-2 rounded-2xl border p-4 text-center">
-        <Stat label="Income" value={formatMoney(data.incomeTotal)} />
-        <Stat label="Spent" value={formatMoney(data.spentTotal)} />
-        <Stat
-          label="Saved"
-          value={formatMoney(saved)}
-          tone={saved >= 0 ? 'positive' : 'negative'}
-        />
+        <Stat label="Income" amount={data.incomeTotal} />
+        <Stat label="Spent" amount={data.spentTotal} />
+        <Stat label="Saved" amount={saved} tone={saved >= 0 ? 'positive' : 'negative'} />
       </div>
 
       {data.spentTotal === 0 ? (

@@ -37,8 +37,11 @@ yarn-error.log*
 # local notes holding secrets — this repo is public
 google-auth-credentials.md
 
-# local agent settings (machine-specific; may name local paths/tools)
-.claude/settings.local.json
+# local agent/IDE settings (machine-specific; not app code)
+.claude/
+.agents/
+skills-lock.json
+.idea/
 
 # vercel
 .vercel

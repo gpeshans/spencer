@@ -5,11 +5,12 @@ import Link from 'next/link';
 import { BucketGoals } from '@/components/bucket-goals';
 import { CategoryBreakdown } from '@/components/category-breakdown';
 import { CategoryPie } from '@/components/category-pie';
+import { CurrencyViewToggle } from '@/components/currency-view-toggle';
 import { MemberSplit } from '@/components/member-split';
 import { SpendingDayList } from '@/components/spending-day-list';
 import { Stat } from '@/components/stat';
 import { getBucketTargets } from '@/lib/categories-data';
-import { currentMonthStartISO, formatMoney, formatMonthTitle } from '@/lib/format';
+import { currentMonthStartISO, formatMonthTitle } from '@/lib/format';
 import { getMonthData } from '@/lib/reports';
 import { getGroupContext } from '@/lib/session';
 
@@ -71,14 +72,11 @@ export default async function OverviewPage({
       </div>
 
       {/* Summary */}
+      <CurrencyViewToggle />
       <div className="grid grid-cols-3 gap-2 rounded-2xl border p-4 text-center">
-        <Stat label="Income" value={formatMoney(data.incomeTotal)} />
-        <Stat label="Spent" value={formatMoney(data.spentTotal)} />
-        <Stat
-          label="Left"
-          value={formatMoney(remaining)}
-          tone={remaining >= 0 ? 'positive' : 'negative'}
-        />
+        <Stat label="Income" amount={data.incomeTotal} />
+        <Stat label="Spent" amount={data.spentTotal} />
+        <Stat label="Left" amount={remaining} tone={remaining >= 0 ? 'positive' : 'negative'} />
       </div>
 
       {data.spentTotal === 0 ? (

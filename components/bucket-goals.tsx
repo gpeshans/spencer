@@ -7,7 +7,7 @@ import { CategoryBreakdown } from '@/components/category-breakdown';
 import { SpendingActions } from '@/components/spending-actions';
 import { SpendingRow } from '@/components/spending-row';
 import { BUCKETS, type Bucket, type BucketKey } from '@/lib/categories';
-import { formatMoney } from '@/lib/format';
+import { useFormatMoney } from '@/components/currency-provider';
 import { totalsByCategory } from '@/lib/totals';
 import { cn } from '@/lib/utils';
 import type { AuthoredSpending, BucketTotal } from '@/types/models';
@@ -38,6 +38,7 @@ export function BucketGoals({
   targets: Record<BucketKey, number>;
   spendings?: AuthoredSpending[];
 }) {
+  const fmt = useFormatMoney();
   const actualByBucket = new Map(data.map((d) => [d.bucket, d.total]));
   const hasIncome = income > 0;
 
@@ -86,9 +87,9 @@ export function BucketGoals({
                 )}
               </span>
               <span className="shrink-0 tabular-nums">
-                <span className="font-medium">{formatMoney(actual)}</span>
+                <span className="font-medium">{fmt(actual)}</span>
                 {hasIncome && (
-                  <span className="text-muted-foreground"> / {formatMoney(targetAmount)}</span>
+                  <span className="text-muted-foreground"> / {fmt(targetAmount)}</span>
                 )}
               </span>
             </div>
@@ -188,6 +189,8 @@ function BucketPanel({
             description={s.description}
             amount={s.amount}
             authorName={s.authorName}
+            originalCurrency={s.original_currency}
+            originalAmount={s.original_amount}
             trailing={<SpendingActions spending={s} />}
           />
         ))}

@@ -9,7 +9,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from '@/components/ui/chart';
-import { formatMoney } from '@/lib/format';
+import { useFormatMoney } from '@/components/currency-provider';
 import { buildMemberSeries } from '@/lib/members';
 import type { AuthoredSpending, GroupMember, MemberTotal } from '@/types/models';
 
@@ -29,6 +29,7 @@ export function MemberSplit({
   total: number;
   spendings: AuthoredSpending[];
 }) {
+  const fmt = useFormatMoney();
   const series = buildMemberSeries(members, data);
   // A zero slice renders as nothing but still claims a paddingAngle gap.
   // Slices are keyed by slot, not by display name: ChartStyle interpolates the
@@ -58,7 +59,7 @@ export function MemberSplit({
                       {nameByKey.get(String(name)) ?? String(name)}
                     </span>
                     <span className="font-medium tabular-nums text-foreground">
-                      {formatMoney(Number(value))}
+                      {fmt(Number(value))}
                     </span>
                   </div>
                 )}
@@ -82,7 +83,7 @@ export function MemberSplit({
                 return (
                   <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle">
                     <tspan x={cx} y={cy - 6} className="fill-foreground text-lg font-semibold">
-                      {formatMoney(total)}
+                      {fmt(total)}
                     </tspan>
                     <tspan x={cx} y={cy + 14} className="fill-muted-foreground text-xs">
                       spent

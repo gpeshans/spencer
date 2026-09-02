@@ -1,10 +1,14 @@
+'use client';
+
 import { SpendingActions } from '@/components/spending-actions';
 import { SpendingRow } from '@/components/spending-row';
-import { formatDayHeading, formatMoney } from '@/lib/format';
+import { useFormatMoney } from '@/components/currency-provider';
+import { formatDayHeading } from '@/lib/format';
 import type { AuthoredSpending } from '@/types/models';
 
 // Groups spendings by day (input is already sorted spent_on desc, created_at desc).
 export function SpendingDayList({ spendings }: { spendings: AuthoredSpending[] }) {
+  const fmt = useFormatMoney();
   const groups = new Map<string, AuthoredSpending[]>();
   for (const s of spendings) {
     const arr = groups.get(s.spent_on);
@@ -23,7 +27,7 @@ export function SpendingDayList({ spendings }: { spendings: AuthoredSpending[] }
                 {formatDayHeading(day)}
               </h3>
               <span className="text-sm tabular-nums text-muted-foreground">
-                {formatMoney(dayTotal)}
+                {fmt(dayTotal)}
               </span>
             </div>
             <div className="divide-y">
@@ -34,6 +38,8 @@ export function SpendingDayList({ spendings }: { spendings: AuthoredSpending[] }
                   description={s.description}
                   amount={s.amount}
                   authorName={s.authorName}
+                  originalCurrency={s.original_currency}
+                  originalAmount={s.original_amount}
                   trailing={<SpendingActions spending={s} />}
                 />
               ))}

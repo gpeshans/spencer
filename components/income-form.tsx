@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
 
 import { useIncomeCategories } from '@/components/categories-provider';
+import { useCurrency } from '@/components/currency-provider';
 import { Button } from '@/components/ui/button';
 import { saveIncome } from '@/lib/actions/income';
 import { formatMoney, parseAmount } from '@/lib/format';
@@ -12,6 +13,7 @@ const toNumber = (s: string | undefined) => parseAmount(s ?? '') || 0;
 
 export function IncomeForm({ current }: { current: Record<string, number> }) {
   const categories = useIncomeCategories();
+  const currency = useCurrency();
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(
       categories.map((c) => [c.key, current[c.key] ? String(current[c.key]) : '']),
@@ -62,7 +64,7 @@ export function IncomeForm({ current }: { current: Record<string, number> }) {
 
       <div className="flex items-center justify-between border-t pt-4">
         <span className="text-sm text-muted-foreground">Monthly total</span>
-        <span className="text-lg font-semibold tabular-nums">{formatMoney(total)}</span>
+        <span className="text-lg font-semibold tabular-nums">{formatMoney(total, currency)}</span>
       </div>
 
       <Button onClick={save} disabled={isPending} size="lg" className="h-12 w-full">

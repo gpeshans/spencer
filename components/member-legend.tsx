@@ -7,7 +7,8 @@ import { CategoryBreakdown } from '@/components/category-breakdown';
 import { SpendingActions } from '@/components/spending-actions';
 import { SpendingRow } from '@/components/spending-row';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { formatMoney, initialsFrom } from '@/lib/format';
+import { useFormatMoney } from '@/components/currency-provider';
+import { initialsFrom } from '@/lib/format';
 import type { MemberSeries } from '@/lib/members';
 import { totalsByCategory } from '@/lib/totals';
 import { cn } from '@/lib/utils';
@@ -35,6 +36,7 @@ export function MemberLegend({
   spendings?: AuthoredSpending[];
 }) {
   const [open, setOpen] = useState<string | null>(null);
+  const fmt = useFormatMoney();
 
   const rowsByMember = useMemo(() => {
     const m = new Map<string, AuthoredSpending[]>();
@@ -81,7 +83,7 @@ export function MemberLegend({
               {Math.round(m.pct)}%
             </span>
             <span className="w-24 text-right text-sm font-medium tabular-nums">
-              {formatMoney(m.total)}
+              {fmt(m.total)}
             </span>
           </>
         );
@@ -149,6 +151,8 @@ function MemberPanel({
             description={s.description}
             amount={s.amount}
             authorName={s.authorName}
+            originalCurrency={s.original_currency}
+            originalAmount={s.original_amount}
             trailing={<SpendingActions spending={s} />}
           />
         ))}
