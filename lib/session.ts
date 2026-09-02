@@ -53,7 +53,7 @@ export const getProfile = cache(async function getProfile(): Promise<
 export const getGroupContext = cache(async function getGroupContext(): Promise<
   | (Authed & {
       profile: Profile;
-      group: { id: string; name: string };
+      group: { id: string; name: string; currency: string };
       members: GroupMember[];
     })
   | null
@@ -62,7 +62,7 @@ export const getGroupContext = cache(async function getGroupContext(): Promise<
   if (!authed) return null;
   const { supabase, profile } = authed;
   const [{ data: group }, { data: members }] = await Promise.all([
-    supabase.from('groups').select('id, name').eq('id', profile.group_id).single(),
+    supabase.from('groups').select('id, name, currency').eq('id', profile.group_id).single(),
     supabase
       .from('profiles')
       .select('id, display_name, email, avatar_url')

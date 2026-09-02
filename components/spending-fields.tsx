@@ -3,13 +3,18 @@
 import { type Ref, useMemo } from 'react';
 
 import { useExpenseCategories, useExpenseResolver } from '@/components/categories-provider';
+import { useCurrency } from '@/components/currency-provider';
 import { Input } from '@/components/ui/input';
 import { textOn } from '@/lib/categories';
+import { altCurrency } from '@/lib/currencies';
 import { cn } from '@/lib/utils';
 
 export type SpendingFieldValues = {
   /** Raw text, parsed with parseAmount() on submit so the locale round-trips. */
   amount: string;
+  /** The currency the amount was typed in — usually the group's currency, but
+   * switchable (e.g. entering a EUR spend while traveling in an MKD group). */
+  currency: string;
   category: string | null;
   description: string;
   /** 'yyyy-MM-dd'. */
@@ -43,6 +48,13 @@ export function SpendingFields({
 }) {
   const active = useExpenseCategories();
   const resolve = useExpenseResolver();
+  const homeCurrency = useCurrency();
+  const alt = altCurrency(homeCurrency);
+  // Almost always just [home, alt] — a third pill only appears for the rare
+  // edit of an entry filed in some other currency, so it's never hidden.
+  const currencyOptions = [homeCurrency, alt, value.currency].filter(
+    (c, i, arr) => arr.indexOf(c) === i,
+  );
 
   // Editing a spending filed under a since-retired category must not force
   // re-categorising it, so the selected key is always offered even when it has
@@ -62,14 +74,6 @@ export function SpendingFields({
           compact ? 'py-5' : 'py-8',
         )}
       >
-        <span
-          className={cn(
-            'font-medium text-muted-foreground',
-            compact ? 'pb-1 text-xl' : 'pb-2 text-2xl',
-          )}
-        >
-          €
-        </span>
         <input
           ref={amountRef}
           value={value.amount}
@@ -87,6 +91,29 @@ export function SpendingFields({
             compact ? 'text-4xl' : 'text-5xl',
           )}
         />
+      </div>
+
+      {/* Currency — one tap to switch (home vs. the other you actually travel with) */}
+      <div className="-mt-3 flex justify-center gap-1.5">
+        {currencyOptions.map((code) => {
+          const isActive = value.currency === code;
+          return (
+            <button
+              key={code}
+              type="button"
+              aria-pressed={isActive}
+              onClick={() => onChange({ currency: code })}
+              className={cn(
+                'rounded-full border px-3 py-1 text-xs font-medium transition active:scale-95',
+                isActive
+                  ? 'border-transparent bg-foreground text-background'
+                  : 'border-border bg-card text-muted-foreground',
+              )}
+            >
+              {code}
+            </button>
+          );
+        })}
       </div>
 
       {/* Category chips */}

@@ -8,7 +8,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from '@/components/ui/chart';
-import { formatMoney } from '@/lib/format';
+import { useFormatMoney } from '@/components/currency-provider';
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -18,6 +18,7 @@ const MONTH_NAMES = [
 const config = { spent: { label: 'Spent', color: '#1c7ed6' } } satisfies ChartConfig;
 
 export function YearBars({ data }: { data: { month: number; spent: number }[] }) {
+  const fmt = useFormatMoney();
   const chartData = data.map((d) => ({ month: MONTH_NAMES[d.month], spent: d.spent }));
 
   return (
@@ -32,7 +33,7 @@ export function YearBars({ data }: { data: { month: number; spent: number }[] })
           tickFormatter={(v) => String(v).slice(0, 1)}
         />
         <ChartTooltip
-          content={<ChartTooltipContent formatter={(value) => formatMoney(Number(value))} />}
+          content={<ChartTooltipContent formatter={(value) => fmt(Number(value))} />}
         />
         <Bar dataKey="spent" fill="var(--color-spent)" radius={4} />
       </BarChart>

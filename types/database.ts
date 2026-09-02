@@ -56,6 +56,9 @@ export interface Database {
           category: string;
           bucket: Database['public']['Enums']['bucket'];
           spent_on: string;
+          original_currency: string | null;
+          original_amount: number | null;
+          fx_rate: number | null;
           created_at: string;
           updated_at: string;
         };
@@ -68,6 +71,9 @@ export interface Database {
           category: string;
           bucket?: Database['public']['Enums']['bucket']; // set by trigger from category
           spent_on?: string;
+          original_currency?: string | null;
+          original_amount?: number | null;
+          fx_rate?: number | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -80,6 +86,9 @@ export interface Database {
           category?: string;
           bucket?: Database['public']['Enums']['bucket']; // re-derived by trigger
           spent_on?: string;
+          original_currency?: string | null;
+          original_amount?: number | null;
+          fx_rate?: number | null;
           created_at?: string;
           updated_at?: string;
         };

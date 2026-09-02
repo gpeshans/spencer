@@ -9,7 +9,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from '@/components/ui/chart';
-import { formatMoney } from '@/lib/format';
+import { useFormatMoney } from '@/components/currency-provider';
 import { buildMemberSeries } from '@/lib/members';
 import type { GroupMember, MemberTotal } from '@/types/models';
 
@@ -33,6 +33,7 @@ export function MemberYearBars({
   data: MemberTotal[];
   members: GroupMember[];
 }) {
+  const fmt = useFormatMoney();
   const series = buildMemberSeries(members, data);
 
   const chartData = byMonth.map((m) => ({
@@ -57,7 +58,7 @@ export function MemberYearBars({
             tickFormatter={(v) => String(v).slice(0, 1)}
           />
           <ChartTooltip
-            content={<ChartTooltipContent formatter={(value) => formatMoney(Number(value))} />}
+            content={<ChartTooltipContent formatter={(value) => fmt(Number(value))} />}
           />
           {series.map((s, i) => (
             <Bar

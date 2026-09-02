@@ -4,6 +4,7 @@ import { useOptimistic, useRef, useState, useTransition } from 'react';
 import { toast } from 'sonner';
 
 import { useExpenseCategories } from '@/components/categories-provider';
+import { useCurrency } from '@/components/currency-provider';
 import { SpendingActions } from '@/components/spending-actions';
 import { SpendingFields, type SpendingFieldValues } from '@/components/spending-fields';
 import { SpendingRow } from '@/components/spending-row';
@@ -19,8 +20,10 @@ export function AddSpendingForm({
   recent: AuthoredSpending[];
   today: string;
 }) {
+  const groupCurrency = useCurrency();
   const [values, setValues] = useState<SpendingFieldValues>({
     amount: '',
+    currency: groupCurrency,
     category: null,
     description: '',
     date: today,
@@ -36,7 +39,7 @@ export function AddSpendingForm({
   const patch = (p: Partial<SpendingFieldValues>) => setValues((v) => ({ ...v, ...p }));
 
   function handleSubmit() {
-    const { amount, category, description, date } = values;
+    const { amount, currency, category, description, date } = values;
     const amt = parseAmount(amount);
     if (!amt || amt <= 0) {
       toast.error('Enter an amount');
@@ -48,6 +51,8 @@ export function AddSpendingForm({
     }
 
     const nowIso = new Date().toISOString();
+    // Shown un-converted for the moment it's pending (dimmed) — the real,
+    // group-currency amount replaces it once the server round-trip lands.
     const optimistic: AuthoredSpending = {
       id: `optimistic-${nowIso}`,
       group_id: '',
@@ -57,6 +62,9 @@ export function AddSpendingForm({
       bucket: categories.find((c) => c.key === category)?.bucket ?? 'wants',
       description: description.trim(),
       spent_on: date,
+      original_currency: null,
+      original_amount: null,
+      fx_rate: null,
       created_at: nowIso,
       updated_at: nowIso,
       authorName: 'You',
@@ -64,12 +72,13 @@ export function AddSpendingForm({
 
     startTransition(async () => {
       addOptimistic(optimistic);
-      const res = await addSpending({ amount: amt, category, description, spentOn: date });
+      const res = await addSpending({ amount: amt, currency, category, description, spentOn: date });
       if (res.error) toast.error(res.error);
       else toast.success('Spending added');
     });
 
-    // Reset for rapid entry; keep category + date, and keep the amount focused.
+    // Reset for rapid entry; keep currency + category + date (you're usually
+    // adding several spends in the same place), and keep the amount focused.
     patch({ amount: '', description: '' });
     amountRef.current?.focus();
   }
@@ -104,6 +113,8 @@ export function AddSpendingForm({
                     description={s.description}
                     amount={s.amount}
                     authorName={s.authorName}
+                    originalCurrency={s.original_currency}
+                    originalAmount={s.original_amount}
                     dimmed={pending}
                     trailing={pending ? undefined : <SpendingActions spending={s} />}
                   />

@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
 
+import { useCurrency } from '@/components/currency-provider';
 import { SpendingFields, type SpendingFieldValues } from '@/components/spending-fields';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
@@ -40,8 +41,12 @@ function EditSpendingForm({
   spending: AuthoredSpending;
   onDone: () => void;
 }) {
+  const groupCurrency = useCurrency();
+  // Edit shows what was actually typed, not the converted total — reopening a
+  // MKD entry re-shows MKD, not the EUR figure it rolled up into.
   const [values, setValues] = useState<SpendingFieldValues>({
-    amount: formatAmountInput(spending.amount),
+    amount: formatAmountInput(spending.original_amount ?? spending.amount),
+    currency: spending.original_currency ?? groupCurrency,
     category: spending.category,
     description: spending.description,
     date: spending.spent_on,
@@ -64,6 +69,7 @@ function EditSpendingForm({
       const res = await updateSpending({
         id: spending.id,
         amount: amt,
+        currency: values.currency,
         category,
         description: values.description,
         spentOn: values.date,
