@@ -165,7 +165,12 @@ export function createAnthropicProvider(options: AnthropicProviderOptions = {}):
           });
           if (kind === 'aborted') return fail(aborted());
           if (!TRANSIENT.has(kind)) {
-            return fail({ code: 'request_failed', message: `The model request was rejected (${kind}).` });
+            // Keep the API's own explanation: it's what tells a bad schema from a missing beta or a bad key.
+            const detail = apiMessageOf(error);
+            return fail({
+              code: 'request_failed',
+              message: `The model request was rejected (${kind})${detail ? `: ${detail}` : '.'}`,
+            });
           }
           failure = { code: 'unavailable', message: `The model is unavailable (${kind}).` };
           previousError = kind;
@@ -328,6 +333,14 @@ function billingOf(
     costUsd: cost,
     refusalFallbackRan: iterations.some((iteration) => iteration.type === 'fallback_message'),
   };
+}
+
+/** The API's message for a failed request, shortened; null when there is none. */
+function apiMessageOf(error: unknown): string | null {
+  const message = error instanceof Anthropic.APIError ? error.apiMessage : null;
+  if (!message) return null;
+  const flat = message.replace(/\s+/g, ' ').trim();
+  return flat.length > 300 ? `${flat.slice(0, 299)}…` : flat;
 }
 
 function errorKind(error: unknown): string {
