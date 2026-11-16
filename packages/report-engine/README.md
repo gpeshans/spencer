@@ -23,3 +23,7 @@ This is the working copy inside spencer. It is meant to be published as `querybr
   - **Per query:** a savepoint, an `EXPLAIN` cost gate, a protocol-level row cap, a byte cap, and a tripwire that aborts and discards everything if the session changes.
   - **Errors:** structured, and data errors never echo row values.
   - **Values:** typed by column. Dates and timestamps stay as server text; numerics become numbers only when exact.
+- `semantic/` (M1c): the semantic model, stage 0.
+  - **`introspect`** reads what the reporting role can see in the reporting schemas. It also flags every way a query could read past RLS: views without `security_invoker`, materialized views, foreign tables, tables without RLS, owner-rights views or unprotected tables behind the views, and untrusted `SECURITY DEFINER` functions.
+  - **`buildSemanticModel`** regenerates the relations and `schemaHash`, keeps the curated sections (metrics, dimensions, synonyms, examples, suggested reports), and checks them with `sql-guard`.
+  - **`checkFreshness`** detects a stale model.
