@@ -136,6 +136,7 @@ Every stage reads the previous stage's typed result, saves its own result on the
   - The structured query names only what the semantic model defines (decided 2026-11-16).
     - It is either an `aggregate` (metrics by dimensions and a time grain) or `rows` (a listing).
     - Every name is a schema enum.
+    - The LLM writes the query as one flat object, and code checks that its names fit the view. Structured outputs allow at most 16 union-typed fields per request, and a union of one variant per view grows with every view (review fix, 2026-11-16).
     - A question that spans two views, such as spending against income, is two sections combined in code.
     - A section these shapes can't describe gets LLM-written SQL with no compiled cross-check.
   - Derived calculations (share of total, change against the previous period).

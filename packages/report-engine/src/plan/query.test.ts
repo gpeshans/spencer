@@ -2,7 +2,8 @@ import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { describe, expect, it } from 'vitest';
 
 import { testModel } from '../testing/model';
-import { checkPeriod, checkQuery, isIsoDate, structuredQuerySchema, type StructuredQuery } from './query';
+import { countUnions } from '../testing/schema';
+import { checkPeriod, checkQuery, isIsoDate, queryDraftSchema, toQueryDraft, toStructuredQuery, type QueryDraft, type StructuredQuery } from './query';
 import { buildVocabulary, columnKind } from './vocabulary';
 
 const vocabulary = buildVocabulary(testModel());
@@ -62,32 +63,64 @@ const rows = (fields: Partial<Extract<StructuredQuery, { shape: 'rows' }>> = {})
   ...fields,
 });
 
-describe('structuredQuerySchema', () => {
-  const schema = structuredQuerySchema(vocabulary);
+describe('queryDraftSchema', () => {
+  const schema = queryDraftSchema(vocabulary);
 
-  it('accepts both shapes', () => {
-    expect(schema.safeParse(aggregate()).success).toBe(true);
-    expect(schema.safeParse(rows()).success).toBe(true);
-    expect(
-      schema.safeParse(aggregate({ relation: 'reporting.monthly_income', metrics: ['monthly_income'], dimensions: [], sort: [] }))
-        .success,
-    ).toBe(true);
+  it('accepts drafts of each shape, including none', () => {
+    expect(schema.safeParse(toQueryDraft(aggregate())).success).toBe(true);
+    expect(schema.safeParse(toQueryDraft(rows())).success).toBe(true);
+    expect(schema.safeParse(toQueryDraft(null)).success).toBe(true);
   });
 
-  it('only accepts names from the model, for the right relation', () => {
-    expect(schema.safeParse(aggregate({ metrics: ['profit'] })).success).toBe(false);
-    expect(schema.safeParse(aggregate({ metrics: ['monthly_income'] })).success).toBe(false);
-    expect(schema.safeParse(aggregate({ relation: 'reporting.categories' })).success).toBe(false);
-    expect(schema.safeParse(rows({ columns: ['id'] })).success).toBe(false);
-    expect(schema.safeParse(rows({ relation: 'public.profiles' })).success).toBe(false);
-    expect(schema.safeParse(rows({ limit: 500 })).success).toBe(false);
+  it('only accepts names from the model', () => {
+    const draft = toQueryDraft(aggregate());
+    expect(schema.safeParse({ ...draft, metrics: ['profit'] }).success).toBe(false);
+    expect(schema.safeParse({ ...draft, relation: 'public.profiles' }).success).toBe(false);
+    expect(schema.safeParse({ ...toQueryDraft(rows()), columns: ['id'] }).success).toBe(false);
+    expect(schema.safeParse({ ...draft, filters: [{ field: 'email', op: 'in', values: ['x'] }] }).success).toBe(false);
   });
 
-  it('becomes a JSON schema with an enum for every name', () => {
-    const json = JSON.stringify(betaZodOutputFormat(schema).schema);
-    expect(json).toContain('"enum":["spend","expense_count"]');
-    expect(json).toContain('"const":"reporting.spendings"');
-    expect(json).not.toContain('"id"');
+  it('stays one small object, far under the API limit of 16 union-typed fields', () => {
+    const json = betaZodOutputFormat(schema).schema as Record<string, unknown>;
+    expect(JSON.stringify(json)).toContain('"enum":["spend","expense_count","monthly_income"]');
+    expect(countUnions(json)).toBe(1); // period: a date range, or null
+  });
+});
+
+describe('toStructuredQuery and toQueryDraft', () => {
+  it('turn a query into a draft and back', () => {
+    const listing = rows({ filters: [{ column: 'amount', op: 'gt', values: [100] }] });
+    for (const query of [aggregate(), aggregate({ grain: 'month', dimensions: [], sort: [] }), listing]) {
+      expect(toStructuredQuery(toQueryDraft(query), vocabulary)).toEqual({ ok: true, query });
+    }
+    expect(toQueryDraft(listing).filters[0]!.values).toEqual(['100']);
+    expect(toStructuredQuery(toQueryDraft(null), vocabulary)).toEqual({ ok: true, query: null });
+  });
+
+  it("reports names that don't fit the view, and fields of the other shape", () => {
+    const issuesOf = (draft: QueryDraft) => {
+      const result = toStructuredQuery(draft, vocabulary);
+      return result.ok ? [] : result.issues;
+    };
+    const draft = toQueryDraft(aggregate());
+    // Every problem is reported at once, so one retry can fix them all.
+    expect(issuesOf({ ...draft, metrics: ['monthly_income'] })).toEqual([
+      'metric monthly_income is not computed over reporting.spendings',
+      'sort by spend: only selected metrics and dimensions can be sorted by',
+    ]);
+    expect(issuesOf({ ...draft, columns: ['amount'] })).toEqual(['an aggregate lists no columns; use metrics and dimensions']);
+    expect(issuesOf({ ...draft, filters: [{ field: 'category', op: 'gt', values: ['1'] }] })).toEqual([
+      "gt can't filter the dimension category; use in or not_in",
+    ]);
+    const listing = toQueryDraft(rows());
+    expect(issuesOf({ ...listing, metrics: ['spend'], grain: 'month' })).toEqual([
+      'a listing has no metrics or dimensions; list columns instead',
+      'a listing has no grain',
+    ]);
+    expect(issuesOf({ ...listing, filters: [{ field: 'amount', op: 'gt', values: ['lots'] }] })).toEqual([
+      'values for amount must be numbers',
+    ]);
+    expect(issuesOf({ ...listing, relation: '' })).toEqual(['unknown view ']);
   });
 });
 

@@ -42,8 +42,9 @@ This is the working copy inside spencer. It is meant to be published as `querybr
   - **Hooks:** the guard and `onCall` belong to the provider, so create one provider per run when they are run-scoped. That is cheap: the SDK client is light and `fetch` pools connections.
 - `plan/` (M2b): what a request or a plan may name, and the structured query.
   - **`buildVocabulary`** takes the names from the semantic model: metrics and dimensions per view, the date that periods and grain apply to, and the columns a listing may show (identifiers are left out).
-  - **`structuredQuerySchema`** has two shapes: `aggregate` (metrics by dimensions and a time grain) and `rows` (a listing).
-    - Every name is a schema enum, so the API lets the LLM choose only names that exist.
+  - **The structured query** has two shapes: `aggregate` (metrics by dimensions and a time grain) and `rows` (a listing).
+    - The LLM writes it as one flat object, **`queryDraftSchema`**. Every name in it is a schema enum, so the API lets the LLM choose only names that exist.
+    - **`toStructuredQuery`** then checks that the names fit the view. The API allows at most 16 union-typed fields per request, and a union of one variant per view would grow with every view.
     - `checkQuery` checks what the schema can't express.
 - `prompt/` (M2b): `cachePrefix` (the rules, then the fenced semantic model) and `fence`.
   - A fence ends in a boundary that the text's author can't know.
