@@ -1,67 +1,21 @@
 import { describe, expect, it } from 'vitest';
 
-import { priceOf, ZERO_USAGE, type GenerateRequest, type GenerateResult, type LlmCallRecord, type LlmProvider } from '../llm';
+import { priceOf } from '../llm';
 import type { QueryOutcome, ReportQuery, RunOutcome } from '../pg';
 import { buildVocabulary } from '../plan/vocabulary';
 import { cachePrefix } from '../prompt/context';
 import type { Intent } from '../stages/intent';
 import type { PlanSection, ReportPlan } from '../stages/plan';
+import { scriptedLlm, type ScriptedAnswer } from '../testing/llm';
 import { testModel } from '../testing/model';
-import {
-  answerClarification,
-  approvePlan,
-  expireRun,
-  newRun,
-  PlanningError,
-  planRun,
-  rejectRun,
-  todayIn,
-  type PlanningDeps,
-  type PlanningState,
-} from './planning';
+import { answerClarification, approvePlan, expireRun, planRun, rejectRun, todayIn, type PlanningDeps } from './planning';
+import { newRun, RunStateError, type RunState } from './state';
 
 const model = testModel();
 const vocabulary = buildVocabulary(model);
 const prefix = cachePrefix(model, vocabulary);
 const NOW = new Date('2026-11-16T10:00:00Z');
 const OCTOBER = { from: '2026-10-01', to: '2026-11-01' };
-
-const record = (stage: string): LlmCallRecord => ({
-  stage,
-  attempt: 1,
-  provider: 'test',
-  modelRequested: 'test-model',
-  modelServed: 'test-model',
-  fallbackReason: null,
-  effort: 'low',
-  usage: { ...ZERO_USAGE, inputTokens: 100, outputTokens: 50 },
-  costUsd: 0.01,
-  latencyMs: 5,
-  ttftMs: null,
-  stopReason: 'end_turn',
-  requestId: null,
-  errorClass: null,
-});
-
-type Answer = { output: unknown } | { fails: 'unavailable' | 'refused' };
-
-/** An LLM that gives scripted answers, checked against each request's own schema. */
-function scripted(answers: Answer[]) {
-  const requests: GenerateRequest<unknown>[] = [];
-  const llm: LlmProvider = {
-    async generate<T>(request: GenerateRequest<T>): Promise<GenerateResult<T>> {
-      requests.push(request as GenerateRequest<unknown>);
-      const answer = answers.shift();
-      if (!answer) throw new Error(`no scripted answer for ${request.stage}`);
-      const calls = [record(request.stage)];
-      if ('fails' in answer) return { ok: false, error: { code: answer.fails, message: `stub: ${answer.fails}` }, calls };
-      const parsed = request.schema.safeParse(answer.output);
-      if (!parsed.success) throw new Error(`the scripted ${request.stage} answer breaks its schema: ${parsed.error.message}`);
-      return { ok: true, output: parsed.data, calls };
-    },
-  };
-  return { llm, requests };
-}
 
 interface Data {
   values?: Record<string, string[]>;
@@ -92,10 +46,10 @@ function database(data: Data = {}) {
   return { query, ran };
 }
 
-function setup(answers: Answer[], data: Data = {}, overrides: Partial<PlanningDeps> = {}) {
-  const { llm, requests } = scripted(answers);
+function setup(answers: ScriptedAnswer[], data: Data = {}, overrides: Partial<PlanningDeps> = {}) {
+  const { llm, requests } = scriptedLlm(answers);
   const db = database(data);
-  const saved: PlanningState[] = [];
+  const saved: RunState[] = [];
   const deps: PlanningDeps = {
     vocabulary,
     cachePrefix: prefix,
@@ -232,7 +186,7 @@ describe('planRun', () => {
 
   it('gives up after two questions', async () => {
     const asked = (question: string) => ({ question, options: [], answer: 'something', askedAt: NOW.toISOString() });
-    const state: PlanningState = { ...run(), status: 'planning', clarifications: [asked('One?'), asked('Two?')] };
+    const state: RunState = { ...run(), status: 'planning', clarifications: [asked('One?'), asked('Two?')] };
     const { deps } = setup([{ output: intent({ ambiguities: [{ question: 'Three?', options: [] }] }) }]);
     expect(await planRun(state, deps)).toMatchObject({
       status: 'failed',
@@ -306,7 +260,7 @@ describe('planRun', () => {
       pendingUntil: '2026-11-17T10:00:00.000Z',
     });
 
-    expect(() => approvePlan(state, 'f'.repeat(64), NOW)).toThrow(PlanningError);
+    expect(() => approvePlan(state, 'f'.repeat(64), NOW)).toThrow(RunStateError);
     expect(approvePlan(state, state.planHash!, NOW)).toMatchObject({ status: 'executing', pendingUntil: null });
     expect(() => approvePlan(state, state.planHash!, new Date('2026-11-17T10:00:00Z'))).toThrow('expired');
   });
@@ -336,7 +290,7 @@ describe('planRun', () => {
 });
 
 describe('the explicit moves', () => {
-  const pending = (status: 'needs_clarification' | 'awaiting_approval'): PlanningState => ({
+  const pending = (status: 'needs_clarification' | 'awaiting_approval'): RunState => ({
     ...run(),
     status,
     planHash: 'a'.repeat(64),

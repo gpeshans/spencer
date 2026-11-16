@@ -156,6 +156,7 @@ Every stage reads the previous stage's typed result, saves its own result on the
 - One call writes a `SELECT` for every section, from the plan and the semantic model.
 - **Output per section:** SQL with `$n` placeholders for every value taken from the request, the parameter list, a plain-language summary, and the expected column names and types.
 - Values from the request never appear in the SQL text, and every identifier must exist in the `reporting` schema.
+- Output columns are named after the section's structured query: its dimensions, then the time dimension for a grain, then its metrics. Later stages can rely on those names. (M2c)
 
 ### Stage 5: Validate SQL (code)
 
@@ -167,6 +168,11 @@ Every stage reads the previous stage's typed result, saves its own result on the
   3. The section fails with a clear message. If the section is essential, the run fails.
 
   The Sonnet 5.5 fallback (§6) covers API failures, not SQL that fails validation.
+
+  As built in M2c:
+  - The dry run and the execution share one executor run. Each query's `EXPLAIN` gate runs just before the query, so a query that fails `EXPLAIN` never runs.
+  - A repair round is one LLM call for every failing section. After it, every section runs again, so the results come from one snapshot.
+  - Step 2, the compiled fallback, arrives with the compiler in M3. Until then, a section that still fails after two repairs fails.
 
 ### Stage 6: Execute (code)
 

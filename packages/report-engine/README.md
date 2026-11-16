@@ -69,3 +69,18 @@ This is the working copy inside spencer. It is meant to be published as `querybr
     - It saves the state after every change and adds up tokens, cost and time per stage.
     - An LLM answer that fails its checks gets one more try, with the problems listed.
   - **`answerClarification`, `approvePlan`, `rejectRun` and `expireRun`** make the explicit moves. `approvePlan` goes by plan hash and only before the approval expires.
+- `stages/sql.ts` (M2c): stages 4 and 5.
+  - **`sqlRequest`:** one LLM call at high effort writes a SELECT for every section.
+    - The schema is the same for every plan, so it compiles once and its prefix stays cacheable.
+    - The instructions list the guard's own function allow-list.
+    - They ask for every plan value as a `$n` parameter, and for output columns named after the plan's fields (dimensions, the time dimension for a grain, then metrics).
+  - **`checkSql`:** checks before anything runs: sql-guard; parameters (all used, and no plan value written in as a literal); and the output columns' names and types.
+  - **`checkOutcome`:** after a query runs, flags an error, or columns other than the ones declared.
+  - **`repairRequest`:** covers only the failing sections, each with its SQL, the exact problems and the columns of its view.
+- `pipeline/execution.ts` (M2c): **`executeRun`** takes an approved run through stages 4–6.
+  - It writes the SQL, checks it, and runs the valid queries together in one read-only transaction.
+  - It repairs what failed: up to two rounds, one call each. After a repair everything runs again, so the results share one snapshot.
+  - The run ends `succeeded`, `partial` (some sections failed, none essential) or `failed`.
+  - Every SQL version goes to `recordQuery`; spencer stores them in `report_queries`.
+  - The compiled fallback comes in M3.
+- `pipeline/state.ts`: `RunState`, shared by planning and execution, with `results` per section. `pipeline/tracker.ts` holds their shared bookkeeping: checked transitions, saves, usage and stage times.
