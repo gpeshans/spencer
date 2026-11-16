@@ -3,7 +3,15 @@ import { z } from 'zod';
 import { canonicalJson, sha256Hex } from '../core/canonical';
 import { findSameName } from '../core/similarity';
 import type { GenerateRequest, ModelPrice } from '../llm';
-import { checkQuery, nameOf, structuredQuerySchema, type AggregateQuery, type StructuredQuery } from '../plan/query';
+import {
+  nameOf,
+  queryDraftSchema,
+  toQueryDraft,
+  toStructuredQuery,
+  type AggregateQuery,
+  type QueryDraft,
+  type StructuredQuery,
+} from '../plan/query';
 import type { Vocabulary } from '../plan/vocabulary';
 import { fence, randomBoundary } from '../prompt/fence';
 import type { Feasibility } from './feasibility';
@@ -61,9 +69,24 @@ export interface ReportPlan {
   crossChecks: CrossCheck[];
 }
 
+/** A section as the LLM writes it: the query is a flat draft (see queryDraftSchema). */
+export interface PlanSectionDraft extends Omit<PlanSection, 'query'> {
+  query: QueryDraft;
+}
+
+/** A plan as the LLM writes it; checkPlan turns it into a ReportPlan. */
+export interface PlanDraft extends Omit<ReportPlan, 'sections'> {
+  sections: PlanSectionDraft[];
+}
+
+/** The draft a plan comes from: the inverse of checkPlan's conversion. */
+export function toPlanDraft(plan: ReportPlan): PlanDraft {
+  return { ...plan, sections: plan.sections.map((section) => ({ ...section, query: toQueryDraft(section.query) })) };
+}
+
 const ID = /^[a-z][a-z0-9_]{0,31}$/;
 
-export function planSchema(vocabulary: Vocabulary): z.ZodType<ReportPlan> {
+export function planSchema(vocabulary: Vocabulary): z.ZodType<PlanDraft> {
   const metrics = vocabulary.metrics.map((metric) => metric.name);
   const id = z.string().regex(ID).describe('Lowercase letters, digits and underscores, e.g. "by_category".');
   const schema = z.object({
@@ -76,7 +99,7 @@ export function planSchema(vocabulary: Vocabulary): z.ZodType<ReportPlan> {
           title: z.string(),
           purpose: z.string().describe('What this section answers. When query is null, exactly what to compute.'),
           display: z.enum(SECTION_DISPLAYS),
-          query: structuredQuerySchema(vocabulary).nullable(),
+          query: queryDraftSchema(vocabulary),
           essential: z.boolean().describe('True when the report is useless without this section.'),
         }),
       )
@@ -104,8 +127,8 @@ export function planSchema(vocabulary: Vocabulary): z.ZodType<ReportPlan> {
       }),
     ),
   });
-  // Built from the model at run time; its output is a ReportPlan.
-  return schema as z.ZodType<ReportPlan>;
+  // Built from the model at run time; its output is a PlanDraft.
+  return schema as z.ZodType<PlanDraft>;
 }
 
 export const PLAN_INSTRUCTIONS = `Stage 3 of 3 before any SQL: plan the report.
@@ -114,8 +137,8 @@ Turn the checked request into a report plan:
 - title, and a summary in plain language of what the report shows and what it assumes.
 - sections, at most ${MAX_SECTIONS}, in reading order. Give each an id, a title, its purpose, a display, a structured query, and whether the report is useless without it (essential).
   - display: figure (one or a few numbers), table, bar (a breakdown), line (over time), pie (shares of one whole, few slices), or text (words only, no query).
-  - query: the aggregate shape for figures, breakdowns and trends; the rows shape for listings of individual records. Use the period, filters and grain of the checked request unless a section needs another, such as the comparison period.
-  - When a section needs something the shapes can't express, set query to null and say exactly what to compute in its purpose.
+  - query: shape aggregate (metrics, dimensions, grain) for figures, breakdowns and trends; shape rows (columns) for listings of individual records; shape none for text. Fill only the fields of the shape you choose and leave the others empty ([], none or 0). Use the period, filters and grain of the checked request unless a section needs another, such as the comparison period.
+  - When a section needs something the shapes can't express, use shape none and say exactly what to compute in its purpose.
 - derived: values code computes from sections. share_of_total is each row's share of its section's total. change compares a section with the same breakdown over the comparison period. difference and ratio combine two sections with the same dimensions and grain, e.g. income minus spending per month.
 - crossChecks: sums_to, when a breakdown must add up to a total shown in another section.
 Keep the plan small: one section per thing the person asked for, plus a headline figure when it helps.`;
@@ -158,7 +181,7 @@ export function renderPlanInput(input: PlanInput, boundary = randomBoundary()): 
   return parts.join('\n');
 }
 
-export function planRequest(vocabulary: Vocabulary, cachePrefix: string, input: PlanInput): GenerateRequest<ReportPlan> {
+export function planRequest(vocabulary: Vocabulary, cachePrefix: string, input: PlanInput): GenerateRequest<PlanDraft> {
   return {
     stage: 'plan',
     cachePrefix,
@@ -186,8 +209,11 @@ const aggregateOf = (section: PlanSection | undefined): AggregateQuery | null =>
 const sameSet = (a: readonly string[], b: readonly string[]) =>
   a.length === b.length && a.every((value) => b.includes(value));
 
-/** Checks the plan and returns it with filter values spelled as the household does. */
-export function checkPlan(plan: ReportPlan, context: PlanCheckContext): PlanVerdict {
+/**
+ * Turns the LLM's draft into a ReportPlan and checks it. Filter values come
+ * back spelled as the household spells them.
+ */
+export function checkPlan(plan: PlanDraft, context: PlanCheckContext): PlanVerdict {
   const issues: string[] = [];
   if (plan.sections.length === 0) issues.push('a plan needs at least one section');
   if (plan.sections.length > MAX_SECTIONS) issues.push(`a plan has at most ${MAX_SECTIONS} sections`);
@@ -197,10 +223,12 @@ export function checkPlan(plan: ReportPlan, context: PlanCheckContext): PlanVerd
     if (!ID.test(section.id)) issues.push(`section id "${section.id}" must be lowercase letters, digits and _`);
     if (ids.has(section.id)) issues.push(`section id ${section.id} is used twice`);
     ids.add(section.id);
-    const query = section.query ? canonicalFilters(section.id, section.query, context, issues) : null;
-    if (query) issues.push(...checkQuery(query, context.vocabulary).map((issue) => `${section.id}: ${issue}`));
-    issues.push(...checkDisplay({ ...section, query }));
-    return { ...section, query };
+    const converted = toStructuredQuery(section.query, context.vocabulary);
+    if (!converted.ok) issues.push(...converted.issues.map((issue) => `${section.id}: ${issue}`));
+    const query = converted.ok && converted.query ? canonicalFilters(section.id, converted.query, context, issues) : null;
+    const checked: PlanSection = { ...section, query };
+    if (converted.ok) issues.push(...checkDisplay(checked));
+    return checked;
   });
 
   const byId = new Map(sections.map((section) => [section.id, section]));

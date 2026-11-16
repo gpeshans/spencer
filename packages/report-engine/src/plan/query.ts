@@ -65,76 +65,157 @@ export function namesOf(values: readonly string[]) {
   return values.length > 0 ? z.array(nameOf(values)) : z.array(z.string()).max(0);
 }
 
-/** `list` when the relation has something to put in it; otherwise it must stay empty. */
-function emptyUnless<T extends z.ZodArray<z.ZodType>>(allowed: boolean, list: T): T {
-  return allowed ? list : list.max(0);
+export const QUERY_SHAPES = ['aggregate', 'rows', 'none'] as const;
+export type QueryShape = (typeof QUERY_SHAPES)[number];
+
+/**
+ * What the LLM writes for a plan section's query: one flat object, whatever
+ * the shape. Structured outputs allow at most 16 union-typed fields per
+ * request, and a union of one variant per shape and view grows with every
+ * view. So every name is an enum (none can be invented), and code checks that
+ * the names fit the view: `toStructuredQuery`, then `checkQuery`, whose
+ * problems go back to the LLM for another try. Fields the shape doesn't use
+ * are empty, `none` or 0.
+ */
+export interface QueryDraft {
+  shape: QueryShape;
+  relation: string;
+  metrics: string[];
+  dimensions: string[];
+  grain: Grain | 'none';
+  columns: string[];
+  filters: Array<{ field: string; op: ColumnFilterOp; values: string[] }>;
+  period: Period | null;
+  sort: Sort[];
+  /** 0 for no limit. */
+  limit: number;
 }
 
-function aggregateVariant(relation: RelationVocabulary) {
-  const time = relation.time;
-  const sortable = [...relation.metrics, ...relation.dimensions, ...(time ? [time.dimension] : [])];
-  return z.object({
-    shape: z.literal('aggregate'),
-    relation: z.literal(relation.name),
-    metrics: z.array(nameOf(relation.metrics)).min(1).describe('Metrics to compute.'),
-    dimensions: namesOf(relation.dimensions).describe('Dimensions to group by; empty for a single figure.'),
-    grain: time
-      ? z.enum(GRAINS).nullable().describe(`Groups ${time.dimension} into periods of this size, or null.`)
-      : z.null(),
-    filters: emptyUnless(
-      relation.dimensions.length > 0,
-      z.array(
-        z.object({
-          dimension: nameOf(relation.dimensions),
-          op: z.enum(DIMENSION_FILTER_OPS),
-          values: z.array(z.string()).min(1).describe('Exact values, spelled as in the household values.'),
-        }),
-      ),
+const unique = (values: readonly string[]) => [...new Set(values)];
+
+export function queryDraftSchema(vocabulary: Vocabulary): z.ZodType<QueryDraft> {
+  const metrics = vocabulary.metrics.map((metric) => metric.name);
+  const dimensions = vocabulary.dimensions.map((dimension) => dimension.name);
+  const columns = unique(vocabulary.relations.flatMap((relation) => relation.columns.map((column) => column.name)));
+  const times = unique(vocabulary.relations.flatMap((relation) => (relation.time ? [relation.time.dimension] : [])));
+  const schema = z.object({
+    shape: z
+      .enum(QUERY_SHAPES)
+      .describe('aggregate: metrics by dimensions and a grain. rows: a listing of records. none: no query.'),
+    relation: nameOf(['', ...vocabulary.relations.map((relation) => relation.name)]).describe(
+      'The view the query reads; empty for shape none.',
     ),
-    period: time ? PeriodSchema.nullable().describe(`Applies to ${time.dimension}; null for all time.`) : z.null(),
-    sort: z.array(z.object({ by: nameOf(sortable), direction: z.enum(DIRECTIONS) })),
-    limit: z.number().int().min(1).max(MAX_AGGREGATE_LIMIT).nullable(),
-  });
-}
-
-function rowsVariant(relation: RelationVocabulary) {
-  const names = relation.columns.map((column) => column.name);
-  const filterable = relation.columns.filter((column) => !isTime(column.kind)).map((column) => column.name);
-  return z.object({
-    shape: z.literal('rows'),
-    relation: z.literal(relation.name),
-    columns: z.array(nameOf(names)).min(1).describe('Columns to show, in order.'),
-    filters: emptyUnless(
-      filterable.length > 0,
-      z.array(
-        z.object({
-          column: nameOf(filterable),
-          op: z.enum(COLUMN_FILTER_OPS),
-          values: z.array(z.union([z.string(), z.number(), z.boolean()])).min(1),
-        }),
-      ),
+    metrics: namesOf(metrics).describe('aggregate: metrics computed over the view. Otherwise empty.'),
+    dimensions: namesOf(dimensions).describe('aggregate: dimensions of the view to group by. Otherwise empty.'),
+    grain: z.enum(['none', ...GRAINS]).describe("aggregate: group the view's date by this period, or none."),
+    columns: namesOf(columns).describe('rows: columns of the view to list, in order. Otherwise empty.'),
+    filters: z.array(
+      z.object({
+        field: nameOf(unique([...dimensions, ...columns])).describe('aggregate: a dimension. rows: a column.'),
+        op: z.enum(COLUMN_FILTER_OPS),
+        values: z.array(z.string()).min(1).describe('As text, e.g. "Groceries", "100" or "true".'),
+      }),
     ),
-    period: relation.time
-      ? PeriodSchema.nullable().describe(`Applies to ${relation.time.column}; null for all time.`)
-      : z.null(),
-    sort: z.array(z.object({ by: nameOf(names), direction: z.enum(DIRECTIONS) })),
-    limit: z.number().int().min(1).max(MAX_ROWS_LIMIT),
+    period: PeriodSchema.nullable().describe("Applies to the view's date; null for all time."),
+    sort: z.array(
+      z.object({ by: nameOf(unique([...metrics, ...dimensions, ...times, ...columns])), direction: z.enum(DIRECTIONS) }),
+    ),
+    limit: z.number().int().min(0).describe('Most rows to return, 0 for no limit. A listing needs 1 to 200.'),
   });
+  // Built from the model at run time; its output is a QueryDraft.
+  return schema as z.ZodType<QueryDraft>;
 }
 
-/** The schema for one structured query: one variant per shape and relation. */
-export function structuredQuerySchema(vocabulary: Vocabulary): z.ZodType<StructuredQuery> {
-  const variants: z.ZodType[] = [];
-  for (const relation of vocabulary.relations) {
-    if (relation.metrics.length > 0) variants.push(aggregateVariant(relation));
-    if (relation.columns.length > 0) variants.push(rowsVariant(relation));
+export type DraftResult = { ok: true; query: StructuredQuery | null } | { ok: false; issues: string[] };
+
+/** A listing's filter values arrive as text; numbers and booleans become what their column holds. */
+function coerce(value: string, kind: ColumnKind | undefined): string | number | boolean {
+  const trimmed = value.trim();
+  if (kind === 'number' && trimmed !== '' && Number.isFinite(Number(trimmed))) return Number(trimmed);
+  if (kind === 'boolean' && (trimmed.toLowerCase() === 'true' || trimmed.toLowerCase() === 'false')) {
+    return trimmed.toLowerCase() === 'true';
   }
-  const [first, ...rest] = variants;
-  if (!first) throw new Error('The semantic model has no relation a query could read.');
-  const schema = rest.length === 0 ? first : z.union([first, ...rest] as [z.ZodType, z.ZodType, ...z.ZodType[]]);
-  // The variants are built at run time from the model, so their exact type is
-  // only known here: each one is a StructuredQuery for its relation.
-  return schema as z.ZodType<StructuredQuery>;
+  return value;
+}
+
+/** Turns a draft into a structured query and checks it (null for shape none). */
+export function toStructuredQuery(draft: QueryDraft, vocabulary: Vocabulary): DraftResult {
+  if (draft.shape === 'none') return { ok: true, query: null };
+  const relation = vocabulary.relation(draft.relation);
+  if (!relation) return { ok: false, issues: [`unknown view ${draft.relation}`] };
+  const issues: string[] = [];
+  let query: StructuredQuery;
+  if (draft.shape === 'aggregate') {
+    if (draft.columns.length > 0) issues.push('an aggregate lists no columns; use metrics and dimensions');
+    const filters = draft.filters.map((filter) => {
+      if (!['eq', 'in', 'not_in'].includes(filter.op)) {
+        issues.push(`${filter.op} can't filter the dimension ${filter.field}; use in or not_in`);
+      }
+      return { dimension: filter.field, op: filter.op === 'not_in' ? ('not_in' as const) : ('in' as const), values: filter.values };
+    });
+    query = {
+      shape: 'aggregate',
+      relation: relation.name,
+      metrics: draft.metrics,
+      dimensions: draft.dimensions,
+      grain: draft.grain === 'none' ? null : draft.grain,
+      filters,
+      period: draft.period,
+      sort: draft.sort,
+      limit: draft.limit > 0 ? draft.limit : null,
+    };
+  } else {
+    if (draft.metrics.length > 0 || draft.dimensions.length > 0) {
+      issues.push('a listing has no metrics or dimensions; list columns instead');
+    }
+    if (draft.grain !== 'none') issues.push('a listing has no grain');
+    const kinds = new Map(relation.columns.map((column) => [column.name, column.kind]));
+    query = {
+      shape: 'rows',
+      relation: relation.name,
+      columns: draft.columns,
+      filters: draft.filters.map((filter) => ({
+        column: filter.field,
+        op: filter.op,
+        values: filter.values.map((value) => coerce(value, kinds.get(filter.field))),
+      })),
+      period: draft.period,
+      sort: draft.sort,
+      limit: draft.limit,
+    };
+  }
+  issues.push(...checkQuery(query, vocabulary));
+  return issues.length > 0 ? { ok: false, issues } : { ok: true, query };
+}
+
+/** The draft a structured query comes from: the inverse of toStructuredQuery. */
+export function toQueryDraft(query: StructuredQuery | null): QueryDraft {
+  const empty = { metrics: [], dimensions: [], columns: [], grain: 'none' as const };
+  if (!query) return { ...empty, shape: 'none', relation: '', filters: [], period: null, sort: [], limit: 0 };
+  if (query.shape === 'aggregate') {
+    return {
+      ...empty,
+      shape: 'aggregate',
+      relation: query.relation,
+      metrics: [...query.metrics],
+      dimensions: [...query.dimensions],
+      grain: query.grain ?? 'none',
+      filters: query.filters.map((filter) => ({ field: filter.dimension, op: filter.op, values: [...filter.values] })),
+      period: query.period,
+      sort: [...query.sort],
+      limit: query.limit ?? 0,
+    };
+  }
+  return {
+    ...empty,
+    shape: 'rows',
+    relation: query.relation,
+    columns: [...query.columns],
+    filters: query.filters.map((filter) => ({ field: filter.column, op: filter.op, values: filter.values.map(String) })),
+    period: query.period,
+    sort: [...query.sort],
+    limit: query.limit,
+  };
 }
 
 const isTime = (kind: ColumnKind) => kind === 'date' || kind === 'timestamp';
