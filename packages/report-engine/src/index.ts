@@ -8,6 +8,27 @@ export {
 } from './core/run-status';
 export { signScope, type SignScopeInput } from './supabase/signed-scope';
 export {
+  columnType,
+  createPgExecutor,
+  DEFAULT_EXECUTOR_LIMITS,
+  exactNumber,
+  parserFor,
+  toQueryError,
+  type ColumnType,
+  type ExecutorLimits,
+  type ExecutorOptions,
+  type ParamValue,
+  type QueryColumn,
+  type QueryError,
+  type QueryOutcome,
+  type ReportExecutor,
+  type ReportQuery,
+  type ReportScope,
+  type RunError,
+  type RunInput,
+  type RunOutcome,
+} from './pg';
+export {
   createSqlGuard,
   DEFAULT_ALLOWED_FUNCTIONS,
   DEFAULT_ALLOWED_OPERATORS,

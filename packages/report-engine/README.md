@@ -17,3 +17,9 @@ This is the working copy inside spencer. It is meant to be published as `querybr
   - **Allowed:** exactly one `SELECT`, reading only allow-listed, schema-qualified relations or CTEs in scope, and using only allow-listed functions, types and operators.
   - **Rejected:** any parse-tree node type not on the allow-list, plus over-complex queries.
   - **Output:** the original text, a structural fingerprint, and issues that name the valid alternatives.
+- `pg/` (M1b): the executor (`createPgExecutor`). It runs guard-approved SQL for one report:
+  - **Envelope:** one `REPEATABLE READ READ ONLY` transaction that always rolls back, under `SET LOCAL ROLE`, with limits and the guard's session settings (`search_path = pg_catalog`, `standard_conforming_strings = on`).
+  - **Scope:** the signed scope is set, then verified.
+  - **Per query:** a savepoint, an `EXPLAIN` cost gate, a protocol-level row cap, a byte cap, and a tripwire that aborts and discards everything if the session changes.
+  - **Errors:** structured, and data errors never echo row values.
+  - **Values:** typed by column. Dates and timestamps stay as server text; numerics become numbers only when exact.

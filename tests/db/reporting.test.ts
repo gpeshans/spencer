@@ -4,28 +4,8 @@ import postgres from 'postgres';
 import { RUN_STATUSES, signScope } from 'report-engine';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import {
-  applyMigrations,
-  applySupabaseStub,
-  assertHex,
-  dockerAvailable,
-  startDatabase,
-  type TestDatabase,
-} from './harness';
-
-/** The household seeded by migration 0001. */
-const FAMILY = '00000000-0000-0000-0000-000000000001';
-const OTHER = randomUUID();
-const ALICE = randomUUID();
-const BOB = randomUUID();
-
-/** First day of the month `offset` months from now, as YYYY-MM-DD (UTC). */
-function monthStart(offset: number): string {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offset, 1))
-    .toISOString()
-    .slice(0, 10);
-}
+import { ALICE, BOB, FAMILY, monthStart, OTHER, prepareDatabase } from './fixtures';
+import { dockerAvailable, type TestDatabase } from './harness';
 
 /** Thrown to roll a transaction back while handing a value out of it. */
 class Rollback extends Error {
@@ -48,20 +28,12 @@ describe.skipIf(!dockerAvailable())('migrations 0001-0008 on a local Postgres 17
   let db: TestDatabase;
   let reader: postgres.Sql;
   let applied: string[] = [];
-  const scopeKey = randomBytes(32).toString('hex');
-  const readerPassword = randomBytes(16).toString('hex');
+  let scopeKey = '';
 
   beforeAll(async () => {
-    db = await startDatabase();
-    const postgresPassword = randomBytes(16).toString('hex');
-    await applySupabaseStub(db, postgresPassword);
-    applied = await applyMigrations(db, postgresPassword);
-    await seed(db.admin);
-
-    assertHex(readerPassword);
-    await db.admin.unsafe(`alter role reports_login password '${readerPassword}'`);
-    await db.admin`select vault.create_secret(${scopeKey}, 'reports_scope_key')`;
-    reader = postgres(db.url('reports_login', readerPassword), {
+    const prepared = await prepareDatabase();
+    ({ db, applied, scopeKey } = prepared);
+    reader = postgres(prepared.readerUrl, {
       max: 1,
       prepare: false,
       onnotice: () => {},
@@ -399,39 +371,3 @@ describe.skipIf(!dockerAvailable())('migrations 0001-0008 on a local Postgres 17
     });
   });
 });
-
-/** Two households with one member each, a few spendings and effective-dated income. */
-async function seed(sql: postgres.Sql): Promise<void> {
-  await sql`insert into public.allowed_emails (email) values ('alice@example.test'), ('bob@example.test')`;
-  await sql`
-    insert into auth.users (id, email, raw_user_meta_data)
-    values (${ALICE}, 'alice@example.test', ${sql.json({ full_name: 'Alice' })})`;
-  await sql`insert into public.groups (id, name) values (${OTHER}, 'Other household')`;
-  await sql`
-    insert into auth.users (id, email, raw_user_meta_data)
-    values (${BOB}, 'bob@example.test', ${sql.json({ full_name: 'Bob' })})`;
-  // Sign-up puts everyone in the oldest household; move Bob to the second one.
-  await sql`update public.profiles set group_id = ${OTHER} where id = ${BOB}`;
-
-  await sql`
-    insert into public.categories (group_id, kind, key, label, bucket)
-    values (${OTHER}, 'expense', 'groceries', 'Groceries', 'needs'),
-           (${OTHER}, 'income', 'salary', 'Salary', null)`;
-  const [familyCategory] = await sql`
-    select key from public.categories
-    where group_id = ${FAMILY} and kind = 'expense'
-    order by sort
-    limit 1`;
-
-  await sql`
-    insert into public.spendings (group_id, user_id, description, amount, category, spent_on)
-    values (${FAMILY}, ${ALICE}, 'Coffee beans', 12.50, ${familyCategory?.key}, ${monthStart(-1)}::date),
-           (${FAMILY}, ${ALICE}, 'Train ticket', 30.00, ${familyCategory?.key}, ${monthStart(0)}::date),
-           (${OTHER}, ${BOB}, 'Bread', 7.25, 'groceries', ${monthStart(0)}::date)`;
-
-  await sql`
-    insert into public.income (group_id, category, amount, effective_from)
-    values (${FAMILY}, 'salary', 1000, ${monthStart(-8)}::date),
-           (${FAMILY}, 'salary', 1200, ${monthStart(-5)}::date),
-           (${OTHER}, 'salary', 500, ${monthStart(-6)}::date)`;
-}
