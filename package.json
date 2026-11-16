@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:db": "vitest run --project db",
     "reports:model": "tsx scripts/reports-model.ts",
-    "reports:model:live": "tsx --env-file=.env.local scripts/reports-model.ts --url"
+    "reports:model:live": "tsx --env-file=.env.local scripts/reports-model.ts --url",
+    "reports:smoke": "tsx --env-file=.env.local scripts/reports-smoke.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
@@ -20,11 +21,12 @@
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
     "lucide-react": "^1.25.0",
-    "next": "16.2.10",
+    "next": "16.4.6",
     "next-themes": "^0.4.6",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "recharts": "^3.8.0",
+    "report-engine": "*",
     "server-only": "^0.0.1",
     "shadcn": "^4.13.1",
     "sonner": "^2.0.7",
@@ -37,7 +39,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.2.10",
+    "eslint-config-next": "16.4.6",
     "postgres": "^4.1.1",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",

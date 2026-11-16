@@ -103,6 +103,9 @@ Every stage reads the previous stage's typed result, saves its own result on the
 
 ### Stage 1: Understand intent (LLM, low effort)
 
+- **Before the call:** code reads each dimension's values in the household's data, such as its category and member names, with code-built queries through the executor.
+  - A deployment may show these values to the LLM, fenced, so it can map "groceries" onto the real name. Spencer does; the library default doesn't.
+  - Code always uses them to check the values the intent names.
 - **Output (`Intent`):**
   - **Kind:** report, single figure, comparison, trend, breakdown, listing, out of scope, or write request.
   - **What to compute:** metrics, dimensions and filters.
@@ -119,7 +122,7 @@ Every stage reads the previous stage's typed result, saves its own result on the
 - **Checks:**
   - The required fields exist.
   - Data exists in the requested range (minimum and maximum date, row count, under the user's RLS scope).
-  - The user's scope resolves to exactly one household.
+  - The user's scope resolves to exactly one household. The executor verifies this for every run, so there is no separate probe.
   - The semantic model is fresh.
 - These probe queries are built by code, not written by the LLM, and run through the same executor as everything else.
 - **Output (`Feasibility`):** `ok`, `partial` or `no`, with gaps, alternatives and data coverage.
@@ -130,6 +133,12 @@ Every stage reads the previous stage's typed result, saves its own result on the
 - **Output (`ReportPlan`):**
   - A title.
   - Sections: headline figures, tables, charts and text. Each has a purpose, a **structured query** (view, measures, dimensions, filters, grain, sort, limit) and a chart or table spec.
+  - The structured query names only what the semantic model defines (decided 2026-11-16).
+    - It is either an `aggregate` (metrics by dimensions and a time grain) or `rows` (a listing).
+    - Every name is a schema enum.
+    - The LLM writes the query as one flat object, and code checks that its names fit the view. Structured outputs allow at most 16 union-typed fields per request, and a union of one variant per view grows with every view (review fix, 2026-11-16).
+    - A question that spans two views, such as spending against income, is two sections combined in code.
+    - A section these shapes can't describe gets LLM-written SQL with no compiled cross-check.
   - Derived calculations (share of total, change against the previous period).
   - Cross-checks, e.g. the category breakdown must add up to the total.
   - A plain-language summary.
@@ -148,6 +157,7 @@ Every stage reads the previous stage's typed result, saves its own result on the
 - One call writes a `SELECT` for every section, from the plan and the semantic model.
 - **Output per section:** SQL with `$n` placeholders for every value taken from the request, the parameter list, a plain-language summary, and the expected column names and types.
 - Values from the request never appear in the SQL text, and every identifier must exist in the `reporting` schema.
+- Output columns are named after the section's structured query: its dimensions, then the time dimension for a grain, then its metrics. Later stages can rely on those names. (M2c)
 
 ### Stage 5: Validate SQL (code)
 
@@ -159,6 +169,11 @@ Every stage reads the previous stage's typed result, saves its own result on the
   3. The section fails with a clear message. If the section is essential, the run fails.
 
   The Sonnet 5.5 fallback (§6) covers API failures, not SQL that fails validation.
+
+  As built in M2c:
+  - The dry run and the execution share one executor run. Each query's `EXPLAIN` gate runs just before the query, so a query that fails `EXPLAIN` never runs.
+  - A repair round is one LLM call for every failing section. After it, every section runs again, so the results come from one snapshot.
+  - Step 2, the compiled fallback, arrives with the compiler in M3. Until then, a section that still fails after two repairs fails.
 
 ### Stage 6: Execute (code)
 
@@ -197,6 +212,9 @@ received → planning → [needs_clarification | awaiting_approval] → executin
 ```
 
 - A `stage` field carries finer progress (understanding, checking, planning, writing SQL, validating, executing, verifying, narrating, rendering).
+- The engine keeps no run state of its own. The planning half is `planRun` (M2b), which hands each new state to the caller to save.
+  - A paused run carries `pendingUntil`, which spencer stores as `approval_expires_at`.
+  - A clarifying answer clears the intent and the plan; stage 1 works them out again from the answer.
 - Every transition is saved with a timestamp and the actor. The page can poll progress, a closed tab doesn't lose the run, and every run can be audited.
 
 ## 5. Security model
@@ -240,7 +258,8 @@ The **database identity (RLS) is the security boundary**. The validator is defen
 
 ### 5.3 Transaction envelope (one per report)
 
-1. **Connection.** Connect through Supabase's pooler in transaction mode (port 6543, no prepared statements). Vercel can't reach direct connections, which are IPv6-only. Use a small dedicated pool that is never shared with app queries.
+1. **Connection.** Connect through Supabase's pooler in transaction mode (port 6543, no prepared statements), over TLS. Vercel can't reach direct connections, which are IPv6-only. Use a small dedicated pool that is never shared with app queries.
+   - postgres.js connects in plain text unless the URL asks for TLS. So the executor refuses any URL that could reach a remote host without `sslmode=require`, `verify-ca` or `verify-full`.
 2. **Begin.** `BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY`.
 3. **Limits.** `SET LOCAL statement_timeout = '5s'`, `lock_timeout = '1s'`, `idle_in_transaction_session_timeout = '15s'`, `transaction_timeout` (Postgres 17 or later), a `work_mem` cap, `search_path = pg_catalog` (so unqualified functions and operators can only mean built-ins; relations are always schema-qualified) and `standard_conforming_strings = on` (so the server reads string literals the way the parser did). All are set again before each query.
 4. **Scope.** Set the signed scope (`reports.scope`, §5.2).
@@ -294,7 +313,9 @@ Parser: `libpg-query` (the real Postgres grammar), pinned to the server's major 
 ### 5.5 Prompt-injection defences
 
 - **Fencing untrusted text:**
-  - The request, schema comments and every value from the database are fenced as untrusted data, with a random boundary.
+  - The request, schema comments and every value from the database are fenced as untrusted data, with a boundary their author can't know.
+    - Per call, the boundary is random.
+    - In the cached prefix (the schema), it is the hash of the fenced text, which keeps the prefix byte-identical so that it can be cached.
   - The fence sits below a note on which instructions take precedence. This is beep-server's pattern, rewritten.
 - **No tools, no control:**
   - No LLM stage has tools.
@@ -324,30 +345,39 @@ Parser: `libpg-query` (the real Postgres grammar), pinned to the server's major 
 **Provider interface.** `core` owns an `LlmProvider` interface:
 
 ```
-generate({ stage, system, cachePrefix, input, schema, effort, maxTokens, signal })
-  → { output, usage, model, attempts, timings, stopReason, requestId }
+generate({ stage, cachePrefix, system, input, schema, effort, maxTokens, timeoutMs, signal })
+  → { ok: true, output, calls } | { ok: false, error: { code, message }, calls }
 ```
 
-**Anthropic adapter** (official `@anthropic-ai/sdk`):
+`calls` holds one record per attempt (built in M2a).
+
+**Anthropic adapter** (official `@anthropic-ai/sdk`, 1.7.0 or later):
 - `claude-opus-5-5` runs every stage, with the effort set per stage: intent `low`, plan `high`, SQL `high`, narrative `medium`. Adaptive thinking is always on for this model.
-- Every stage uses structured output.
-- **Prompt caching:** the semantic model and the fixed instructions form a stable prefix with a 1-hour cache. After the first call, most input tokens are cache reads.
+- Every stage uses structured output. The answer is validated again with zod, because the API can't enforce string lengths or numeric ranges. The SDK has kept `enum` and `const` in the schema since 1.7.0.
+- **Prompt caching:** the semantic model and the fixed instructions form a stable prefix, cached for 5 minutes by default (1 hour is an option).
+  - The cache key also covers the model, the effort and the output schema, so the stages of one run don't share an entry.
+  - The cache pays off when the same stage runs again within the TTL: a retry, a repair, the next question.
+  - *Corrected in M2a:* this spec first assumed one 1-hour entry shared by every stage. On that assumption most input tokens would have been cache reads.
 - Anthropic's server-side refusal fallback (`fallbacks: "default"`) is enabled.
+- Requests don't stream. Answers are small JSON documents, and every attempt has a deadline. A non-streamed refusal fallback also returns only the final model's answer.
 
 **Retry and fallback policy.** This is beep-server's pattern, rewritten without beep-server's global patching:
-1. The SDK retries with backoff on 408, 409, 429, 5xx and connection errors, a bounded number of times.
-2. An empty or truncated output (`max_tokens`), or a timeout, counts as a failure and gets one more attempt.
+1. The SDK retries with backoff on 408, 409, 429, 5xx, connection errors and timeouts, a bounded number of times.
+2. An empty, truncated (`max_tokens`) or schema-invalid answer counts as a failure and gets one more try on the same model. A truncated answer gets twice the room.
 3. If it still fails, the same step runs on `claude-sonnet-5-5`.
-4. If that fails too, the stage fails, and the run reports which stage failed and why.
+4. If that fails too, the stage fails, and the run reports which stage failed and why. Refusals and other 4xx errors end the stage at once.
 
 Each attempt has its own cancellable deadline, so the run's total time stays bounded.
 
 **Usage and cost.** Each call records:
 - input, output, cache-write and cache-read tokens
 - the model requested and the model that served it, and any fallback reason
-- latency, time to first token, stop reason and request ID
+- latency, stop reason, request ID and error class
+- time to first token, which stays empty while requests don't stream
 
 Cost comes from a price table that includes cache pricing. beep-server's recorder ignored cache tokens.
+
+**Budgets** are checked before every attempt, so spend can pass a limit by at most one attempt.
 
 ## 7. Data model (migration 0008)
 
@@ -411,6 +441,20 @@ Cost comes from a price table that includes cache pricing. beep-server's recorde
 
 Execution continues in `after()`, so it survives a closed tab. Small mutations (save, share, schedule, delete) are server actions.
 
+**As built in M2d:**
+- **Streaming.**
+  - The requests that start work (`POST reports/runs` and `/clarify`) answer with server-sent events: `text/event-stream`, one `state` event per saved state, and a keep-alive comment every 15 s.
+  - The page reads them with `fetch()`, not `EventSource`, which can't POST and reconnects on its own.
+  - When no approval is needed, execution runs in the same request, so its progress streams too.
+  - `/approve` answers 202 at once, and execution continues in `after()`. The page polls `GET reports/runs/[runId]` every 2 s while the run is working without a stream.
+- **Storage.**
+  - A run's state maps onto `report_runs` without another migration: the intent's flags are stored next to the intent, and the unchecked sections and approval reasons next to the plan.
+  - The code-built probes are logged in `report_queries` with source `probe`.
+- **Guards.**
+  - The daily budget ($5) covers the last 24 hours across the household, because the API key is shared.
+  - The run budget carries over what the run spent before an approval.
+  - A signed-out request to `/api/...` gets a JSON 401 from the proxy, not the login page.
+
 **Proxy:** exempt `/api/cron/reports` from the logged-out redirect to `/login` (`lib/supabase/proxy-session.ts:39-46`). Vercel Cron doesn't follow redirects, so without the exemption the job would silently do nothing. The route authenticates with `CRON_SECRET` and takes no input.
 
 **Scheduled runs:**
@@ -430,7 +474,7 @@ Execution continues in `after()`, so it survives a closed tab. Small mutations (
 
 **Environment:**
 - `ANTHROPIC_API_KEY`
-- `REPORTS_DATABASE_URL` (the pooler URL, as `reports_login`)
+- `REPORTS_DATABASE_URL` (the pooler URL, as `reports_login`, with `sslmode=require`)
 - `SUPABASE_SECRET_KEY`
 - `CRON_SECRET`
 - `REPORTS_SCOPE_KEY` (the same value is stored in Vault, §5.2)
@@ -470,7 +514,7 @@ Execution continues in `after()`, so it survives a closed tab. Small mutations (
 
 ## 12. Cost estimate (Opus 5.5; to be measured)
 
-Rough figures per interactive report, with the schema prefix cached:
+Rough figures per interactive report. The schema prefix is about 4K tokens, roughly $0.02 per call uncached. It is cached per stage (§6), so within one run it is mostly written rather than read.
 
 | Stage | Approximate cost |
 |---|---|

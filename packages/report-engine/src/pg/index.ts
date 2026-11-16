@@ -14,4 +14,5 @@ export {
   type RunOutcome,
 } from './executor';
 export { toQueryError, type QueryError } from './errors';
+export { tlsProblem } from './tls';
 export { columnType, exactNumber, finiteNumber, parserFor, type ColumnType } from './values';
