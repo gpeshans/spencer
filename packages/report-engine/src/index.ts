@@ -174,6 +174,7 @@ export {
   DEFAULT_EXECUTOR_LIMITS,
   exactNumber,
   parserFor,
+  tlsProblem,
   toQueryError,
   type ColumnType,
   type ExecutorLimits,

@@ -7,6 +7,7 @@ import {
   createSqlGuard,
   parseSemanticModel,
   priceOf,
+  tlsProblem,
   type ModelPrice,
   type ReportExecutor,
   type SemanticModel,
@@ -18,7 +19,7 @@ import { APP_TIMEZONE } from '@/lib/format';
 import { reportsConfig } from '@/reports.config';
 import modelFile from '@/supabase/reporting/semantic-model.json';
 
-import { reportsEnv } from './env';
+import { reportsEnv, ReportsNotConfigured } from './env';
 
 /**
  * What every run shares, built once per server instance: the semantic model
@@ -39,8 +40,13 @@ const MODEL = 'claude-opus-5-5';
 
 let engine: ReportEngine | undefined;
 
+/** Throws ReportsNotConfigured when a secret is missing or the database URL lacks TLS. */
 export function reportEngine(): ReportEngine {
   if (!engine) {
+    const { databaseUrl } = reportsEnv();
+    // The executor refuses such a URL too; checked here, it's a setup error that names the variable.
+    const tls = tlsProblem(databaseUrl);
+    if (tls) throw new ReportsNotConfigured([`REPORTS_DATABASE_URL ${tls}`]);
     const model = parseSemanticModel(modelFile);
     const vocabulary = buildVocabulary(model);
     const guard = createSqlGuard({ relations: model.relations.map((relation) => relation.name) });
@@ -51,7 +57,7 @@ export function reportEngine(): ReportEngine {
       guard,
       // Supavisor pools connections; a run only ever holds one.
       executor: createPgExecutor({
-        url: reportsEnv().databaseUrl,
+        url: databaseUrl,
         role: reportsConfig.model.role,
         guard,
         timeZone: APP_TIMEZONE,

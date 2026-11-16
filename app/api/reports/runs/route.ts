@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { newRun } from 'report-engine';
 
-import { reportsEnv } from '@/lib/reports/env';
+import { reportEngine } from '@/lib/reports/engine';
 import { failure, problem, readJson, signedIn } from '@/lib/reports/http';
 import { dailyBudgetLeft, RUN_LIMIT_WINDOW_MS, streamRun } from '@/lib/reports/runner';
 import { insertRun, recordEvent, runsStartedSince } from '@/lib/reports/store';
@@ -19,7 +19,8 @@ export async function POST(request: Request): Promise<Response> {
   const body = await readJson(request);
   if (body instanceof Response) return body;
   try {
-    reportsEnv();
+    // A missing secret or a database URL without TLS is a 503 before anything is written.
+    reportEngine();
     const state = newRun(randomUUID(), typeof body.request === 'string' ? body.request : '');
     const { runsPerHour } = reportsConfig.limits;
     if ((await runsStartedSince(me.owner.ownerId, new Date(Date.now() - RUN_LIMIT_WINDOW_MS))) >= runsPerHour) {

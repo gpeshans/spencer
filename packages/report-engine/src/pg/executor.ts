@@ -2,6 +2,7 @@ import postgres from 'postgres';
 
 import type { SqlGuard } from '../sql-guard';
 import { toQueryError, type QueryError } from './errors';
+import { plainTextProblem } from './tls';
 import { columnType, parserFor, type ColumnType } from './values';
 
 /**
@@ -25,6 +26,9 @@ import { columnType, parserFor, type ColumnType } from './values';
  *
  * Queries always use the extended protocol (`simple: false`), which carries
  * exactly one statement, and every query sees the same snapshot.
+ *
+ * A connection that leaves this machine must use TLS (./tls.ts): the executor
+ * refuses a URL that could reach a remote server in plain text.
  */
 
 export interface ExecutorLimits {
@@ -54,7 +58,11 @@ export const DEFAULT_EXECUTOR_LIMITS: ExecutorLimits = {
 };
 
 export interface ExecutorOptions {
-  /** Connection URL of the reporting login (Supavisor transaction mode on Supabase). */
+  /**
+   * Connection URL of the reporting login (Supavisor transaction mode on
+   * Supabase). Unless it stays on this machine, it must ask for TLS:
+   * sslmode=require, verify-ca or verify-full.
+   */
   url: string;
   /** Role every report runs as, via SET LOCAL ROLE. */
   role: string;
@@ -165,6 +173,11 @@ export function createPgExecutor(options: ExecutorOptions): ReportExecutor {
     connect_timeout: 10,
     onnotice: () => {},
   });
+  const tls = plainTextProblem(sql.options);
+  if (tls) {
+    void sql.end({ timeout: 0 });
+    throw new Error(`pg executor: the connection URL ${tls}.`);
+  }
   let serverVersion: number | undefined;
 
   async function settle(tx: Tx): Promise<void> {

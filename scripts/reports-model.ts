@@ -14,7 +14,14 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import postgres from 'postgres';
-import { buildSemanticModel, checkFreshness, introspect, parseSemanticModel, type Introspection } from 'report-engine';
+import {
+  buildSemanticModel,
+  checkFreshness,
+  introspect,
+  parseSemanticModel,
+  tlsProblem,
+  type Introspection,
+} from 'report-engine';
 
 import { reportsConfig } from '../reports.config';
 import { applyMigrations, applySupabaseStub, dockerAvailable, startDatabase } from '../tests/db/harness';
@@ -56,6 +63,12 @@ async function main(): Promise<number> {
     const url = process.env.REPORTS_DATABASE_URL;
     if (!url) {
       console.error('Set REPORTS_DATABASE_URL (in .env.local) to check the live database.');
+      return 2;
+    }
+    // Reports refuse such a URL, so the check doesn't use it either.
+    const tls = tlsProblem(url);
+    if (tls) {
+      console.error(`REPORTS_DATABASE_URL ${tls}.`);
       return 2;
     }
     introspection = await fromDatabase(url);

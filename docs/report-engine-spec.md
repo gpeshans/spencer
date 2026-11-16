@@ -258,7 +258,8 @@ The **database identity (RLS) is the security boundary**. The validator is defen
 
 ### 5.3 Transaction envelope (one per report)
 
-1. **Connection.** Connect through Supabase's pooler in transaction mode (port 6543, no prepared statements). Vercel can't reach direct connections, which are IPv6-only. Use a small dedicated pool that is never shared with app queries.
+1. **Connection.** Connect through Supabase's pooler in transaction mode (port 6543, no prepared statements), over TLS. Vercel can't reach direct connections, which are IPv6-only. Use a small dedicated pool that is never shared with app queries.
+   - postgres.js connects in plain text unless the URL asks for TLS. So the executor refuses any URL that could reach a remote host without `sslmode=require`, `verify-ca` or `verify-full`.
 2. **Begin.** `BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY`.
 3. **Limits.** `SET LOCAL statement_timeout = '5s'`, `lock_timeout = '1s'`, `idle_in_transaction_session_timeout = '15s'`, `transaction_timeout` (Postgres 17 or later), a `work_mem` cap, `search_path = pg_catalog` (so unqualified functions and operators can only mean built-ins; relations are always schema-qualified) and `standard_conforming_strings = on` (so the server reads string literals the way the parser did). All are set again before each query.
 4. **Scope.** Set the signed scope (`reports.scope`, §5.2).
@@ -473,7 +474,7 @@ Execution continues in `after()`, so it survives a closed tab. Small mutations (
 
 **Environment:**
 - `ANTHROPIC_API_KEY`
-- `REPORTS_DATABASE_URL` (the pooler URL, as `reports_login`)
+- `REPORTS_DATABASE_URL` (the pooler URL, as `reports_login`, with `sslmode=require`)
 - `SUPABASE_SECRET_KEY`
 - `CRON_SECRET`
 - `REPORTS_SCOPE_KEY` (the same value is stored in Vault, §5.2)
