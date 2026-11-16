@@ -1,7 +1,7 @@
 import { answerClarification } from 'report-engine';
 
 import { failure, isRunId, problem, readJson, signedIn } from '@/lib/reports/http';
-import { expireIfDue, streamRun } from '@/lib/reports/runner';
+import { settleRun, streamRun } from '@/lib/reports/runner';
 import { claimRun, loadRun, recordEvent } from '@/lib/reports/store';
 
 // The answer sends the run back through planning, inside this request.
@@ -16,9 +16,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ run
   const { runId } = await params;
   if (!isRunId(runId)) return problem(404, 'not_found', 'There is no such report run.');
   try {
-    const state = await loadRun(me.supabase, runId);
-    if (!state) return problem(404, 'not_found', 'There is no such report run.');
-    const current = await expireIfDue(state, me.owner);
+    const stored = await loadRun(me.supabase, runId);
+    if (!stored) return problem(404, 'not_found', 'There is no such report run.');
+    const current = await settleRun(stored, me.owner);
     const answered = answerClarification(current, typeof body.answer === 'string' ? body.answer : '', new Date());
     // Of two answers racing, only one moves the run on.
     if (!(await claimRun(answered, me.owner.ownerId, ['needs_clarification']))) {

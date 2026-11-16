@@ -24,9 +24,14 @@ export interface SseEvent {
  */
 export function createSseParser(onEvent: (event: SseEvent) => void): { push(chunk: string): void } {
   let buffer = '';
+  // A \r at the end of a chunk may be the first half of \r\n: hold it back.
+  let heldCr = false;
   return {
     push(chunk) {
-      buffer += chunk.replace(/\r\n?/g, '\n');
+      let text = (heldCr ? '\r' : '') + chunk;
+      heldCr = text.endsWith('\r');
+      if (heldCr) text = text.slice(0, -1);
+      buffer += text.replace(/\r\n?/g, '\n');
       let end = buffer.indexOf('\n\n');
       while (end !== -1) {
         const block = buffer.slice(0, end);

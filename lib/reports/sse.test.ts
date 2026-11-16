@@ -26,6 +26,16 @@ describe('createSseParser', () => {
   });
 });
 
+describe('createSseParser with CRLF split between chunks', () => {
+  it('keeps the event name when a chunk ends between \\r and \\n', () => {
+    const events: SseEvent[] = [];
+    const parser = createSseParser((event) => events.push(event));
+    parser.push('event: state\r');
+    parser.push('\ndata: {"n":1}\r\n\r\n');
+    expect(events).toEqual([{ event: 'state', data: { n: 1 } }]);
+  });
+});
+
 describe('createEventStream', () => {
   afterEach(() => vi.useRealTimers());
 

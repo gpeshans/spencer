@@ -1,4 +1,4 @@
-import type { RunState, RunStatus } from 'report-engine';
+import type { RunState } from 'report-engine';
 
 import { createSseParser } from './sse';
 
@@ -19,9 +19,7 @@ export class ReportApiError extends Error {
   }
 }
 
-/** Statuses in which the run is working, rather than waiting or done. */
-const WORKING: ReadonlySet<RunStatus> = new Set(['received', 'planning', 'executing']);
-export const isWorking = (status: RunStatus) => WORKING.has(status);
+export { isWorking } from './status';
 
 async function errorOf(response: Response): Promise<ReportApiError> {
   try {

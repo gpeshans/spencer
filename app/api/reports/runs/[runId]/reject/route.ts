@@ -1,7 +1,7 @@
 import { rejectRun } from 'report-engine';
 
 import { failure, isRunId, problem, readJson, signedIn } from '@/lib/reports/http';
-import { expireIfDue } from '@/lib/reports/runner';
+import { settleRun } from '@/lib/reports/runner';
 import { claimRun, loadRun, recordEvent } from '@/lib/reports/store';
 
 /** Declines the open question or the plan; the run ends `rejected`. */
@@ -14,9 +14,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ run
   const { runId } = await params;
   if (!isRunId(runId)) return problem(404, 'not_found', 'There is no such report run.');
   try {
-    const state = await loadRun(me.supabase, runId);
-    if (!state) return problem(404, 'not_found', 'There is no such report run.');
-    const rejected = rejectRun(await expireIfDue(state, me.owner));
+    const stored = await loadRun(me.supabase, runId);
+    if (!stored) return problem(404, 'not_found', 'There is no such report run.');
+    const rejected = rejectRun(await settleRun(stored, me.owner));
     if (!(await claimRun(rejected, me.owner.ownerId, ['needs_clarification', 'awaiting_approval']))) {
       return problem(409, 'conflict', 'The run has moved on. Reload it.');
     }

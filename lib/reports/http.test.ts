@@ -39,7 +39,7 @@ describe('failure', () => {
       code: 'plan_changed',
     });
     expect(await errorOf(failure(new RunStateError('expired', 'Expired.'), 'test'))).toMatchObject({ status: 410 });
-    expect(await errorOf(failure(new ReportsNotConfigured(['SUPABASE_SECRET_KEY']), 'test'))).toMatchObject({
+    expect(await errorOf(failure(new ReportsNotConfigured(['SUPABASE_SECRET_KEY is missing']), 'test'))).toMatchObject({
       status: 503,
       code: 'not_configured',
       message: "Reports aren't set up: SUPABASE_SECRET_KEY is missing.",

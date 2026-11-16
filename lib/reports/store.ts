@@ -22,6 +22,7 @@ import type {
 import type { Database, Json, ReportEventAction, ReportRunRow } from '@/types/database';
 
 import { reportsEnv } from './env';
+import { FINISHED, isStalled, type StoredRun } from './status';
 
 /**
  * Where runs and their logs live (docs/report-engine-spec.md §7). People read
@@ -53,9 +54,6 @@ export class StoreError extends Error {
 
 const asJson = (value: unknown) => value as Json;
 
-/** The engine's terminal statuses (isTerminal); a test keeps the two in step. */
-export const FINISHED: ReadonlySet<RunStatus> = new Set(['succeeded', 'partial', 'failed', 'rejected', 'expired']);
-
 /** The columns a run's state is stored in. The intent and plan carry their bookkeeping alongside. */
 export function toRow(state: RunState, now = new Date()): RunUpdate {
   return {
@@ -75,7 +73,7 @@ export function toRow(state: RunState, now = new Date()): RunUpdate {
     cost_usd: Math.round(state.costUsd * 1e6) / 1e6,
     stage_timings: asJson(state.stageTimings),
     approval_expires_at: state.pendingUntil,
-    finished_at: FINISHED.has(state.status) ? now.toISOString() : null,
+    finished_at: FINISHED.includes(state.status) ? now.toISOString() : null,
   };
 }
 
@@ -125,20 +123,34 @@ export async function insertRun(state: RunState, { ownerId, groupId }: Owner): P
   if (error) throw new StoreError('insert run', error.message);
 }
 
+const FINISHED_LIST = `(${FINISHED.join(',')})`;
+
+/**
+ * Saves a run that is still going. A run that has ended (say, marked failed
+ * because it stalled) is never written again, and the late writer is stopped.
+ */
 export async function saveRun(state: RunState, ownerId: string): Promise<void> {
-  const { error } = await adminClient().from('report_runs').update(toRow(state)).eq('id', state.id).eq('owner_id', ownerId);
+  const { data, error } = await adminClient()
+    .from('report_runs')
+    .update(toRow(state))
+    .eq('id', state.id)
+    .eq('owner_id', ownerId)
+    .not('status', 'in', FINISHED_LIST)
+    .select('id');
   if (error) throw new StoreError('save run', error.message);
+  if (data.length === 0) throw new StoreError('save run', 'the run has already ended');
 }
 
 /**
- * Saves `next` only if the run is still in one of `from` (and, for an
- * approval, still has `planHash`). Of two requests racing, one wins.
+ * Saves `next` only if the run is still in one of `from`, and, when given,
+ * still has `planHash` (an approval) or was last saved at `updatedAt` (no one
+ * has written since it was read). Of two requests racing, one wins.
  */
 export async function claimRun(
   next: RunState,
   ownerId: string,
   from: readonly RunStatus[],
-  planHash?: string,
+  { planHash, updatedAt }: { planHash?: string; updatedAt?: string } = {},
 ): Promise<boolean> {
   let query = adminClient()
     .from('report_runs')
@@ -147,16 +159,17 @@ export async function claimRun(
     .eq('owner_id', ownerId)
     .in('status', [...from]);
   if (planHash !== undefined) query = query.eq('plan_hash', planHash);
+  if (updatedAt !== undefined) query = query.eq('updated_at', updatedAt);
   const { data, error } = await query.select('id');
   if (error) throw new StoreError('claim run', error.message);
   return data.length === 1;
 }
 
 /** Reads a run as the signed-in person, under RLS: someone else's run is simply not there. */
-export async function loadRun(client: Client, id: string): Promise<RunState | null> {
+export async function loadRun(client: Client, id: string): Promise<StoredRun | null> {
   const { data, error } = await client.from('report_runs').select('*').eq('id', id).maybeSingle();
   if (error) throw new StoreError('load run', error.message);
-  return data ? fromRow(data) : null;
+  return data ? { state: fromRow(data), updatedAt: data.updated_at } : null;
 }
 
 export interface RunSummary {
@@ -169,11 +182,18 @@ export interface RunSummary {
 export async function recentRuns(client: Client, limit = 10): Promise<RunSummary[]> {
   const { data, error } = await client
     .from('report_runs')
-    .select('id, request, status, created_at')
+    .select('id, request, status, created_at, updated_at')
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) throw new StoreError('list runs', error.message);
-  return data.map((row) => ({ id: row.id, request: row.request, status: row.status, createdAt: row.created_at }));
+  const now = new Date();
+  return data.map((row) => ({
+    id: row.id,
+    request: row.request,
+    // Opening a stalled run marks it failed; the list says so already.
+    status: isStalled(row.status, row.updated_at, now) ? 'failed' : row.status,
+    createdAt: row.created_at,
+  }));
 }
 
 export async function runsStartedSince(ownerId: string, since: Date): Promise<number> {
@@ -186,15 +206,28 @@ export async function runsStartedSince(ownerId: string, since: Date): Promise<nu
   return count ?? 0;
 }
 
-/** LLM spend across the household since `since`; the API key is shared. */
+const PAGE = 1000;
+const MAX_PAGES = 20;
+
+/**
+ * LLM spend across the household since `since`; the API key is shared. The
+ * API returns at most 1,000 rows at a time, so it reads page by page. Beyond
+ * 20 pages the budget is treated as spent, failing closed.
+ */
 export async function spentSince(since: Date): Promise<number> {
-  const { data, error } = await adminClient()
-    .from('report_llm_calls')
-    .select('cost_usd')
-    .gte('created_at', since.toISOString())
-    .limit(100_000);
-  if (error) throw new StoreError('sum spend', error.message);
-  return data.reduce((total, row) => total + Number(row.cost_usd), 0);
+  let total = 0;
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    const { data, error } = await adminClient()
+      .from('report_llm_calls')
+      .select('cost_usd')
+      .gte('created_at', since.toISOString())
+      .order('id')
+      .range(page * PAGE, page * PAGE + PAGE - 1);
+    if (error) throw new StoreError('sum spend', error.message);
+    total += data.reduce((sum, row) => sum + Number(row.cost_usd), 0);
+    if (data.length < PAGE) return total;
+  }
+  return Number.POSITIVE_INFINITY;
 }
 
 export async function recordLlmCall(runId: string, ownerId: string, call: LlmCallRecord): Promise<void> {

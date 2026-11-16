@@ -21,6 +21,7 @@ import { reportsConfig } from '@/reports.config';
 import { reportEngine } from './engine';
 import { reportsEnv } from './env';
 import { createEventStream } from './sse';
+import { stalledFailure, type StoredRun } from './status';
 import { claimRun, recordEvent, recordLlmCall, recordProbes, recordQuery, saveRun, spentSince, type Owner } from './store';
 
 /**
@@ -31,6 +32,13 @@ import { claimRun, recordEvent, recordLlmCall, recordProbes, recordQuery, saveRu
 
 const HOUR_MS = 3_600_000;
 const DAY_MS = 24 * HOUR_MS;
+
+/**
+ * Work on a run stops after this long, so it always ends saved, inside the
+ * function's 300 s (spec §5.7). Every LLM call gets the deadline as its signal.
+ * A stage that is cut off fails the run with a message saying it took too long.
+ */
+export const RUN_DEADLINE_MS = 270_000;
 
 /** The household's LLM spend over the last 24 hours stays under the daily budget. */
 const dailyBudget: SpendGuard = {
@@ -51,6 +59,7 @@ export async function dailyBudgetLeft(): Promise<boolean> {
 /** Runs whatever comes next for the run: planning, then execution if nothing pauses it. */
 async function drive(initial: RunState, owner: Owner, emit: (state: RunState) => void): Promise<RunState> {
   let latest = initial;
+  const deadline = AbortSignal.timeout(RUN_DEADLINE_MS);
   try {
     const env = reportsEnv();
     const engine = reportEngine();
@@ -70,7 +79,20 @@ async function drive(initial: RunState, owner: Owner, emit: (state: RunState) =>
         },
         queries,
       });
-    const save = async (state: RunState) => {
+    const save = async (next: RunState) => {
+      // A stage cut off by the deadline fails as "aborted"; say why, before the
+      // failure is stored (a finished run is never written again).
+      const state =
+        deadline.aborted && next.status === 'failed' && next.error?.code === 'aborted'
+          ? {
+              ...next,
+              error: {
+                ...next.error,
+                code: 'timeout',
+                message: 'The report took too long and was stopped. Try a simpler question, or try again.',
+              },
+            }
+          : next;
       await saveRun(state, owner.ownerId);
       latest = state;
       emit(state);
@@ -89,6 +111,7 @@ async function drive(initial: RunState, owner: Owner, emit: (state: RunState) =>
         shareValues: reportsConfig.shareValues,
         remainingUsd: () => reportsConfig.limits.runUsd - budget.spentUsd(),
         price: engine.price,
+        signal: deadline,
       });
     }
     if (state.status === 'executing') {
@@ -98,9 +121,11 @@ async function drive(initial: RunState, owner: Owner, emit: (state: RunState) =>
         guard: engine.guard,
         query: run,
         recordQuery: (attempt) => recordQuery(initial.id, attempt),
+        signal: deadline,
       });
     }
-    return state;
+    // What was stored and streamed, which may differ from the engine's copy (see save).
+    return latest;
   } catch (error) {
     // A dependency failed (the database, a recorder): stop the run where it is.
     console.error(`report run ${initial.id} stopped:`, error);
@@ -141,8 +166,21 @@ export function runInBackground(state: RunState, owner: Owner): void {
   after(() => drive(state, owner, () => {}));
 }
 
+/**
+ * Brings a stored run up to date before anyone acts on it: a working run that
+ * stalled is marked failed, so its page stops waiting, and an open question or
+ * approval that is past due expires.
+ */
+export async function settleRun(stored: StoredRun, owner: Owner): Promise<RunState> {
+  const failed = stalledFailure(stored, new Date());
+  if (!failed) return expireIfDue(stored.state, owner);
+  // Only if no one has saved the run since it was read.
+  const claimed = await claimRun(failed, owner.ownerId, [stored.state.status], { updatedAt: stored.updatedAt });
+  return claimed ? failed : stored.state;
+}
+
 /** Expires an open question or approval that is past due, so a stale run can't be acted on. */
-export async function expireIfDue(state: RunState, owner: Owner): Promise<RunState> {
+async function expireIfDue(state: RunState, owner: Owner): Promise<RunState> {
   const expired = expireRun(state, new Date());
   if (expired === state) return state;
   if (await claimRun(expired, owner.ownerId, [state.status])) {

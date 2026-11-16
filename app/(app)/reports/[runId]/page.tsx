@@ -12,16 +12,17 @@ export default async function ReportRunPage({ params }: { params: Promise<{ runI
   if (!isRunId(runId)) notFound();
   const context = await getProfile();
   if (!context) notFound();
-  // Read as the signed-in person: RLS hides everyone else's runs.
-  const run = await loadRun(context.supabase, runId);
-  if (!run) notFound();
+  // Read as the signed-in person: RLS hides everyone else's runs. A stalled or
+  // expired run is settled by the first poll or action, through the API.
+  const stored = await loadRun(context.supabase, runId);
+  if (!stored) notFound();
 
   return (
     <div className="flex flex-col gap-4 px-4 pb-6 pt-4">
       <Link href="/reports" className="text-sm text-muted-foreground hover:text-foreground">
         ← Reports
       </Link>
-      <RunScreen initial={run} pollMs={reportsConfig.pollMs} />
+      <RunScreen initial={stored.state} pollMs={reportsConfig.pollMs} />
     </div>
   );
 }

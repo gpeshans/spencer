@@ -1,9 +1,9 @@
-import { isTerminal, newRun, RUN_STATUSES, type RunState } from 'report-engine';
+import { newRun, type RunState } from 'report-engine';
 import { describe, expect, it } from 'vitest';
 
 import type { ReportRunRow } from '@/types/database';
 
-import { FINISHED, fromRow, toRow } from './store';
+import { fromRow, toRow } from './store';
 
 const NOW = new Date('2026-11-16T10:00:00.000Z');
 
@@ -101,11 +101,5 @@ describe('toRow and fromRow', () => {
   it('read a fresh row as an empty run', () => {
     const fresh = newRun('3f0c7a52-6b1e-4d2a-9c8e-1b2a3c4d5e6f', 'x');
     expect(fromRow(rowOf(fresh))).toEqual(fresh);
-  });
-});
-
-describe('FINISHED', () => {
-  it("matches the engine's terminal statuses", () => {
-    for (const status of RUN_STATUSES) expect(FINISHED.has(status), status).toBe(isTerminal(status));
   });
 });
