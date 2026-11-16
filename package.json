@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:db": "vitest run --project db",
     "reports:model": "tsx scripts/reports-model.ts",
-    "reports:model:live": "tsx --env-file=.env.local scripts/reports-model.ts --url"
+    "reports:model:live": "tsx --env-file=.env.local scripts/reports-model.ts --url",
+    "reports:smoke": "tsx --env-file=.env.local scripts/reports-smoke.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
