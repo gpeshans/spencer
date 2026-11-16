@@ -90,6 +90,8 @@ export interface IntentInput {
   /** Today, YYYY-MM-DD, in `timeZone`. */
   today: string;
   timeZone: string;
+  /** Problems with the previous answer, when this is the second try. */
+  issues?: readonly string[];
 }
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -110,6 +112,13 @@ export function renderIntentInput(input: IntentInput, boundary = randomBoundary(
   if (input.clarifications.length > 0) {
     const answers = input.clarifications.map((entry) => `Question: ${entry.question}\nAnswer: ${entry.answer}`);
     parts.push('', 'Answers to earlier clarifying questions:', fence('clarifications', answers.join('\n\n'), boundary));
+  }
+  if (input.issues && input.issues.length > 0) {
+    parts.push(
+      '',
+      'Your previous answer had these problems. Fix them all:',
+      fence('issues', input.issues.map((issue) => `- ${issue}`).join('\n'), boundary),
+    );
   }
   return parts.join('\n');
 }

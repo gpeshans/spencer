@@ -122,7 +122,7 @@ Every stage reads the previous stage's typed result, saves its own result on the
 - **Checks:**
   - The required fields exist.
   - Data exists in the requested range (minimum and maximum date, row count, under the user's RLS scope).
-  - The user's scope resolves to exactly one household.
+  - The user's scope resolves to exactly one household. The executor verifies this for every run, so there is no separate probe.
   - The semantic model is fresh.
 - These probe queries are built by code, not written by the LLM, and run through the same executor as everything else.
 - **Output (`Feasibility`):** `ok`, `partial` or `no`, with gaps, alternatives and data coverage.
@@ -205,6 +205,9 @@ received → planning → [needs_clarification | awaiting_approval] → executin
 ```
 
 - A `stage` field carries finer progress (understanding, checking, planning, writing SQL, validating, executing, verifying, narrating, rendering).
+- The engine keeps no run state of its own. The planning half is `planRun` (M2b), which hands each new state to the caller to save.
+  - A paused run carries `pendingUntil`, which spencer stores as `approval_expires_at`.
+  - A clarifying answer clears the intent and the plan; stage 1 works them out again from the answer.
 - Every transition is saved with a timestamp and the actor. The page can poll progress, a closed tab doesn't lose the run, and every run can be audited.
 
 ## 5. Security model

@@ -55,3 +55,17 @@ This is the working copy inside spencer. It is meant to be published as `querybr
     - It refuses writes and out-of-scope questions.
     - It asks a clarifying question for open choices, unknown values (offering the nearest matches) or dimensions that don't fit the figure.
     - Otherwise it returns the intent with values spelled the way the household spells them.
+  - **Stage 2, `feasibilityQueries` / `judgeFeasibility`:** code-built coverage probes for each view the request needs: the first and last date, and the rows in the period and in the comparison period.
+    - **`partial`:** data starts inside the period, the comparison period is empty, or one of two views has no data.
+    - **`no`:** there is no data in the period, or the semantic model is stale. The answer offers the range that does have data.
+  - **Stage 3, `planRequest` / `checkPlan`:** the LLM returns a ReportPlan at high effort.
+    - **Contents:** sections, each with a display and a structured query; derived values (share of total, change, difference, ratio); and cross-checks (a breakdown sums to its total).
+    - **Checks:** ids, every query, whether each display fits its query (a line needs a grain, a pie shows one metric), derived values and cross-checks. Filter values are spelled the way the household spells them.
+  - **`planHash`** is the sha256 of the plan's canonical JSON. An approval refers to it.
+  - **`estimateRemainingCost`** gives a rough cost for the rest of the run.
+  - **`approvalReasons`** decides whether the run pauses: flags from stages 1 and 2, more than 4 sections, or a cost above the budget left.
+- `pipeline/planning.ts` (M2b): the planning half of a run. The engine keeps no state of its own.
+  - **`planRun`** takes a run that is `received` (or answered) through stages 1–3. It ends in `needs_clarification`, `awaiting_approval`, `executing` or `failed`.
+    - It saves the state after every change and adds up tokens, cost and time per stage.
+    - An LLM answer that fails its checks gets one more try, with the problems listed.
+  - **`answerClarification`, `approvePlan`, `rejectRun` and `expireRun`** make the explicit moves. `approvePlan` goes by plan hash and only before the approval expires.

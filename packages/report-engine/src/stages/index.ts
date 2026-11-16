@@ -12,3 +12,36 @@ export {
   type IntentVerdict,
 } from './intent';
 export { MAX_LISTED_VALUES, readValues, valueQueries, type HouseholdValues } from './values';
+export {
+  feasibilityQueries,
+  judgeFeasibility,
+  relationsFor,
+  type Coverage,
+  type Feasibility,
+  type FeasibilityContext,
+} from './feasibility';
+export {
+  approvalReasons,
+  checkPlan,
+  COST_ASSUMPTIONS,
+  DERIVED_KINDS,
+  estimateRemainingCost,
+  MAX_SECTIONS,
+  PLAN_INSTRUCTIONS,
+  planHash,
+  planRequest,
+  planSchema,
+  renderPlanInput,
+  SECTION_DISPLAYS,
+  SECTIONS_WITHOUT_APPROVAL,
+  type ApprovalInput,
+  type CrossCheck,
+  type DerivedKind,
+  type DerivedValue,
+  type PlanCheckContext,
+  type PlanInput,
+  type PlanSection,
+  type PlanVerdict,
+  type ReportPlan,
+  type SectionDisplay,
+} from './plan';
