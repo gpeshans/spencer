@@ -9,7 +9,7 @@ import {
   startOfYear,
 } from 'date-fns';
 
-const LOCALE = process.env.NEXT_PUBLIC_LOCALE || 'de-DE';
+export const LOCALE = process.env.NEXT_PUBLIC_LOCALE || 'de-DE';
 export const DEFAULT_CURRENCY = process.env.NEXT_PUBLIC_CURRENCY || 'EUR';
 export const APP_TIMEZONE = process.env.NEXT_PUBLIC_TIMEZONE || 'Europe/Berlin';
 

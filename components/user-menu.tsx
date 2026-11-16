@@ -1,7 +1,7 @@
 'use client';
 
 import { Menu } from '@base-ui/react/menu';
-import { Download, LogOut, Monitor, Moon, SlidersHorizontal, Sun, Users, Wallet } from 'lucide-react';
+import { Download, FileChartColumn, LogOut, Monitor, Moon, SlidersHorizontal, Sun, Users, Wallet } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, useSyncExternalStore } from 'react';
@@ -143,6 +143,11 @@ export function UserMenu({
             <Menu.Item className={itemClass} onClick={() => router.push('/income')}>
               <Wallet className="size-4 text-muted-foreground" />
               Monthly income
+            </Menu.Item>
+
+            <Menu.Item className={itemClass} onClick={() => router.push('/reports')}>
+              <FileChartColumn className="size-4 text-muted-foreground" />
+              Reports
             </Menu.Item>
 
             <Menu.Item className={itemClass} onClick={() => router.push('/settings')}>

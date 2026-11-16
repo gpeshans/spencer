@@ -33,9 +33,7 @@ export async function readJson(request: Request): Promise<Record<string, unknown
   return problem(400, 'bad_request', 'Send a JSON object.');
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-
-export const isRunId = (value: string) => UUID.test(value);
+export { isRunId } from './ids';
 
 export type Signed = NonNullable<Awaited<ReturnType<typeof getProfile>>> & { owner: Owner };
 

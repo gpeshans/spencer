@@ -1,21 +1,22 @@
 import 'server-only';
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import {
-  isTerminal,
-  type Clarification,
-  type Feasibility,
-  type Intent,
-  type LlmCallRecord,
-  type QueryAttempt,
-  type QueryOutcome,
-  type ReportPlan,
-  type ReportQuery,
-  type RunFailure,
-  type RunStage,
-  type RunState,
-  type RunStatus,
-  type SectionResult,
+// Types only: the report pages read through this module, and they don't need
+// the engine (or its SQL parser) in their bundles.
+import type {
+  Clarification,
+  Feasibility,
+  Intent,
+  LlmCallRecord,
+  QueryAttempt,
+  QueryOutcome,
+  ReportPlan,
+  ReportQuery,
+  RunFailure,
+  RunStage,
+  RunState,
+  RunStatus,
+  SectionResult,
 } from 'report-engine';
 
 import type { Database, Json, ReportEventAction, ReportRunRow } from '@/types/database';
@@ -52,6 +53,9 @@ export class StoreError extends Error {
 
 const asJson = (value: unknown) => value as Json;
 
+/** The engine's terminal statuses (isTerminal); a test keeps the two in step. */
+export const FINISHED: ReadonlySet<RunStatus> = new Set(['succeeded', 'partial', 'failed', 'rejected', 'expired']);
+
 /** The columns a run's state is stored in. The intent and plan carry their bookkeeping alongside. */
 export function toRow(state: RunState, now = new Date()): RunUpdate {
   return {
@@ -71,7 +75,7 @@ export function toRow(state: RunState, now = new Date()): RunUpdate {
     cost_usd: Math.round(state.costUsd * 1e6) / 1e6,
     stage_timings: asJson(state.stageTimings),
     approval_expires_at: state.pendingUntil,
-    finished_at: isTerminal(state.status) ? now.toISOString() : null,
+    finished_at: FINISHED.has(state.status) ? now.toISOString() : null,
   };
 }
 

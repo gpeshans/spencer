@@ -20,7 +20,7 @@ export default defineConfig({
         },
         test: {
           name: 'app',
-          include: ['lib/**/*.test.ts'],
+          include: ['lib/**/*.test.ts', 'components/**/*.test.tsx'],
         },
       },
       // spencer's database tests: migrations on a throwaway local Postgres.
