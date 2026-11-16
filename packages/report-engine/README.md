@@ -40,3 +40,18 @@ This is the working copy inside spencer. It is meant to be published as `querybr
   - **Records:** each attempt carries tokens (cache reads and writes included), cost from a price table, latency, stop reason, request ID, error class and fallback reason. They are shaped for `report_llm_calls`.
   - **Budgets:** a `SpendGuard` is asked before every attempt. `createRunBudget` gives the per-run limit; `allGuards` combines it with a daily one.
   - **Hooks:** the guard and `onCall` belong to the provider, so create one provider per run when they are run-scoped. That is cheap: the SDK client is light and `fetch` pools connections.
+- `plan/` (M2b): what a request or a plan may name, and the structured query.
+  - **`buildVocabulary`** takes the names from the semantic model: metrics and dimensions per view, the date that periods and grain apply to, and the columns a listing may show (identifiers are left out).
+  - **`structuredQuerySchema`** has two shapes: `aggregate` (metrics by dimensions and a time grain) and `rows` (a listing).
+    - Every name is a schema enum, so the API lets the LLM choose only names that exist.
+    - `checkQuery` checks what the schema can't express.
+- `prompt/` (M2b): `cachePrefix` (the rules, then the fenced semantic model) and `fence`.
+  - A fence ends in a boundary that the text's author can't know.
+  - The boundary is random per call, except in the cached prefix, which must stay byte-identical: there it is the hash of the fenced text.
+- `stages/` (M2b): stage 1.
+  - **`valueQueries` / `readValues`** read each dimension's values in the household's data, e.g. its category names. They use code-built SQL that passes sql-guard, through the executor.
+  - **`intentRequest`** asks the LLM for an Intent at low effort.
+  - **`checkIntent`** then decides what happens next:
+    - It refuses writes and out-of-scope questions.
+    - It asks a clarifying question for open choices, unknown values (offering the nearest matches) or dimensions that don't fit the figure.
+    - Otherwise it returns the intent with values spelled the way the household spells them.

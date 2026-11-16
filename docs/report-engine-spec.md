@@ -103,6 +103,9 @@ Every stage reads the previous stage's typed result, saves its own result on the
 
 ### Stage 1: Understand intent (LLM, low effort)
 
+- **Before the call:** code reads each dimension's values in the household's data, such as its category and member names, with code-built queries through the executor.
+  - A deployment may show these values to the LLM, fenced, so it can map "groceries" onto the real name. Spencer does; the library default doesn't.
+  - Code always uses them to check the values the intent names.
 - **Output (`Intent`):**
   - **Kind:** report, single figure, comparison, trend, breakdown, listing, out of scope, or write request.
   - **What to compute:** metrics, dimensions and filters.
@@ -130,6 +133,11 @@ Every stage reads the previous stage's typed result, saves its own result on the
 - **Output (`ReportPlan`):**
   - A title.
   - Sections: headline figures, tables, charts and text. Each has a purpose, a **structured query** (view, measures, dimensions, filters, grain, sort, limit) and a chart or table spec.
+  - The structured query names only what the semantic model defines (decided 2026-11-16).
+    - It is either an `aggregate` (metrics by dimensions and a time grain) or `rows` (a listing).
+    - Every name is a schema enum.
+    - A question that spans two views, such as spending against income, is two sections combined in code.
+    - A section these shapes can't describe gets LLM-written SQL with no compiled cross-check.
   - Derived calculations (share of total, change against the previous period).
   - Cross-checks, e.g. the category breakdown must add up to the total.
   - A plain-language summary.
@@ -294,7 +302,9 @@ Parser: `libpg-query` (the real Postgres grammar), pinned to the server's major 
 ### 5.5 Prompt-injection defences
 
 - **Fencing untrusted text:**
-  - The request, schema comments and every value from the database are fenced as untrusted data, with a random boundary.
+  - The request, schema comments and every value from the database are fenced as untrusted data, with a boundary their author can't know.
+    - Per call, the boundary is random.
+    - In the cached prefix (the schema), it is the hash of the fenced text, which keeps the prefix byte-identical so that it can be cached.
   - The fence sits below a note on which instructions take precedence. This is beep-server's pattern, rewritten.
 - **No tools, no control:**
   - No LLM stage has tools.
