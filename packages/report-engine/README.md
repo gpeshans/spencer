@@ -13,3 +13,7 @@ This is the working copy inside spencer. It is meant to be published as `querybr
 
 - `core/run-status.ts`: the run lifecycle. It must match the `report_runs.status` check constraint (spencer migration 0008).
 - `supabase/signed-scope.ts`: signs the `reports.scope` value that the database function `reporting.scope_group_id()` verifies.
+- `sql-guard/` (M1a): checks LLM-written SQL with the real Postgres 17 parser (`libpg-query`) before it runs.
+  - **Allowed:** exactly one `SELECT`, reading only allow-listed, schema-qualified relations or CTEs in scope, and using only allow-listed functions, types and operators.
+  - **Rejected:** any parse-tree node type not on the allow-list, plus over-complex queries.
+  - **Output:** the original text, a structural fingerprint, and issues that name the valid alternatives.
