@@ -151,7 +151,7 @@ Every stage reads the previous stage's typed result, saves its own result on the
 
 ### Stage 5: Validate SQL (code)
 
-- **Static check (sql-guard, §5.4):** parse the SQL with the real Postgres parser and reject anything outside the rules. The checked syntax tree is printed back to SQL, so what runs is exactly what was checked.
+- **Static check (sql-guard, §5.4):** parse the SQL with the real Postgres parser and reject anything outside the rules. The text that passes runs unchanged. The database parses that same text with the same major grammar, so what runs is exactly what was checked, with no deparser in between.
 - **Dry run:** `EXPLAIN (FORMAT JSON)` inside the user-scoped, read-only transaction. It catches unknown columns, type errors and cost blow-ups without running anything.
 - **On failure** (including runtime errors and timeouts in stage 6), these are tried in order:
   1. The error goes back to stage 4 for the failing section, for up to 2 repairs. The repair prompt quotes the exact error (from the validator, `EXPLAIN` or Postgres) and lists the valid options: views, columns and functions. There is no generic "review your SQL" pass, because in published tests that made results worse.
@@ -242,11 +242,11 @@ The **database identity (RLS) is the security boundary**. The validator is defen
 
 1. **Connection.** Connect through Supabase's pooler in transaction mode (port 6543, no prepared statements). Vercel can't reach direct connections, which are IPv6-only. Use a small dedicated pool that is never shared with app queries.
 2. **Begin.** `BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY`.
-3. **Limits.** `SET LOCAL statement_timeout = '5s'`, `lock_timeout = '1s'`, `idle_in_transaction_session_timeout = '15s'`, `transaction_timeout` (Postgres 17 or later), a `work_mem` cap, and `search_path = reporting`. All are set again before each query.
+3. **Limits.** `SET LOCAL statement_timeout = '5s'`, `lock_timeout = '1s'`, `idle_in_transaction_session_timeout = '15s'`, `transaction_timeout` (Postgres 17 or later), a `work_mem` cap, `search_path = pg_catalog` (so unqualified functions and operators can only mean built-ins; relations are always schema-qualified) and `standard_conforming_strings = on` (so the server reads string literals the way the parser did). All are set again before each query.
 4. **Scope.** Set the signed scope (`reports.scope`, §5.2).
 5. **Each section:**
    1. Run the `EXPLAIN` gate (cost and row thresholds).
-   2. Run the reprinted query, with `LIMIT 1001` injected into its syntax tree.
+   2. Run the checked query unchanged, fetching at most 1,001 rows. The row cap is a protocol-level limit, so the query's own `ORDER BY` and `LIMIT` stay intact.
    3. Check the tripwire: `current_user`, the scope and the limits must be unchanged.
 6. **End.** Always `ROLLBACK`.
 
@@ -254,7 +254,7 @@ Queries are always sent over Postgres's extended protocol, which carries exactly
 
 ### 5.4 SQL validator (`sql-guard`)
 
-Parser: `libpg-query` (the real Postgres grammar), pinned to the server's major version.
+Parser: `libpg-query` (the real Postgres grammar), pinned to the server's major version. Node types that aren't on the allow-list are rejected, so unanticipated constructs fail safe.
 
 **Statement shape:**
 - Exactly one statement, and it must be a `SELECT`. `WITH … SELECT` and `UNION`/`INTERSECT`/`EXCEPT` count.
@@ -277,9 +277,15 @@ Parser: `libpg-query` (the real Postgres grammar), pinned to the server's major 
 
 **Values:** values from the request must be bind parameters. Literal constants (`'month'`, `0`, `1`) are allowed.
 
-**Row limit:** a `LIMIT` is injected into the syntax tree.
+**Relations:** must be schema-qualified. Unqualified names are accepted only for CTEs visible at that point, so a CTE can't shadow a catalog table outside its scope.
 
-**Verdict:** machine-readable reasons, which are fed back to stage 4 for repairs, plus the reprinted SQL.
+**Row limit:** enforced by the executor at the protocol level (§5.3), not by rewriting the query.
+
+**Verdict:**
+- On success: the unchanged text, a structural fingerprint, and the relations and functions used.
+- On failure: machine-readable reasons with hints that name valid alternatives. These are fed back to stage 4 for repairs.
+
+**Error messages:** Postgres errors can echo row values (a failed cast quotes the value). The executor reduces them to the error code and a safe message before they reach the LLM, as the row-data setting requires.
 
 **Test suite:**
 - Every bypass from the research: stacked `COMMIT;`, `pg_read_file` used as a table function, `COPY … TO PROGRAM`, `query_to_xml`, DML inside CTEs, `startsWith('SELECT')`-style tricks.
