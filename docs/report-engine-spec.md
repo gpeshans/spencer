@@ -71,7 +71,7 @@ supabase/reporting/semantic-model.json                      introspection
                                                 pdf/        ReportDocument → PDF (@react-pdf/renderer)
 ```
 
-- Spencer adds `"workspaces": ["packages/*"]` to `package.json` (it uses npm) and adds the package to `transpilePackages` in `next.config.ts`. The package has its own `package.json`, `tsconfig` and tests. A lint rule forbids `@/…` imports inside it.
+- Spencer adds `"workspaces": ["packages/*"]` to `package.json` (it uses npm). Next 16 compiles workspace packages automatically (Turbopack, and webpack for the App Router), so `next.config.ts` needs no `transpilePackages` entry. The package has its own `package.json`, `tsconfig` and tests. A lint rule forbids `@/…` imports inside it.
 - The engine contains no UI apart from the PDF renderer. Spencer renders the in-app report with its own components (shadcn, plus Recharts through `components/ui/chart.tsx`).
 - The subfolders map one-to-one onto the packages proposed for publishing (`core`, `sql-guard`, `pg`, `supabase`, `llm-anthropic`, `pdf`, `next`). Extraction is then a move, not a rewrite.
 
@@ -450,10 +450,11 @@ Execution continues in `after()`, so it survives a closed tab. Small mutations (
 ## 11. Testing
 
 - **sql-guard:** a Vitest suite of allowed queries and attack payloads (§5.4). Spencer has no test runner yet, so Vitest is added.
-- **Database:** pgTAP (`supabase test db`) with **two households**. Today everyone joins the first household at sign-up (`supabase/migrations/0001_init.sql:151-154`), so isolation between households has never been tested. The tests check that:
+- **Database:** Vitest tests in `tests/db` with **two households**. They apply every migration to a throwaway `postgres:17.6` container (production's version), using a Supabase-shaped stub for the platform roles, `auth`, `extensions` and Vault. They skip themselves when Docker isn't available. Today everyone joins the first household at sign-up (`supabase/migrations/0001_init.sql:151-154`), so isolation between households has never been tested. The tests check that:
   - `reports_reader` sees only its own household through every view
   - forged, expired and missing scopes return no rows, and so do forged claims
-  - direct reads of base tables and write attempts fail
+  - direct reads of base tables stay inside the scope and the granted columns. Security-invoker views need those column grants, and the validator rejects such reads anyway.
+  - write attempts fail, even in a read-write transaction
   - every view is `security_invoker`
   - the default grants are revoked, and `authenticated` can't update `profiles.group_id` (migration 0007)
 - **Golden tests:** standard reports (spending by category for a month, income for a month, a year summary) must match `lib/reports.ts` exactly.
@@ -486,7 +487,7 @@ Rough figures per interactive report, with the schema prefix cached:
 |---|---|---|
 | Pre | Migration 0007: reset spencer's table grants (its own pull request) | Apply it and re-run the grants check |
 | M0 | Workspace package, Vitest, lint boundary, draft of migration 0008 (you apply it) | Review the database design as SQL |
-| M1 | sql-guard, executor, introspection, semantic-model generator, pgTAP tests | Run a hand-written query safely end to end; review the generated model |
+| M1 | sql-guard, executor, introspection, semantic-model generator, more database tests | Run a hand-written query safely end to end; review the generated model |
 | M2 | LLM layer, stages 1–6, run state machine, API routes, a minimal `/reports` page with approval | Ask a question and see the SQL and raw results |
 | M3 | Post-processing, cross-checks, compiler fallback, narrative, in-app renderer | Get a finished report in the app |
 | M4 | PDF renderer and download | Download the PDF |
