@@ -439,6 +439,20 @@ Cost comes from a price table that includes cache pricing. beep-server's recorde
 
 Execution continues in `after()`, so it survives a closed tab. Small mutations (save, share, schedule, delete) are server actions.
 
+**As built in M2d:**
+- **Streaming.**
+  - The requests that start work (`POST reports/runs` and `/clarify`) answer with server-sent events: `text/event-stream`, one `state` event per saved state, and a keep-alive comment every 15 s.
+  - The page reads them with `fetch()`, not `EventSource`, which can't POST and reconnects on its own.
+  - When no approval is needed, execution runs in the same request, so its progress streams too.
+  - `/approve` answers 202 at once, and execution continues in `after()`. The page polls `GET reports/runs/[runId]` every 2 s while the run is working without a stream.
+- **Storage.**
+  - A run's state maps onto `report_runs` without another migration: the intent's flags are stored next to the intent, and the unchecked sections and approval reasons next to the plan.
+  - The code-built probes are logged in `report_queries` with source `probe`.
+- **Guards.**
+  - The daily budget ($5) covers the last 24 hours across the household, because the API key is shared.
+  - The run budget carries over what the run spent before an approval.
+  - A signed-out request to `/api/...` gets a JSON 401 from the proxy, not the login page.
+
 **Proxy:** exempt `/api/cron/reports` from the logged-out redirect to `/login` (`lib/supabase/proxy-session.ts:39-46`). Vercel Cron doesn't follow redirects, so without the exemption the job would silently do nothing. The route authenticates with `CRON_SECRET` and takes no input.
 
 **Scheduled runs:**

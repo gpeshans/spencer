@@ -5,7 +5,7 @@ import { feasibilityQueries, judgeFeasibility } from '../stages/feasibility';
 import { checkIntent, intentRequest, type Intent } from '../stages/intent';
 import { approvalReasons, checkPlan, estimateRemainingCost, planHash, planRequest, type ReportPlan } from '../stages/plan';
 import { readValues, valueQueries } from '../stages/values';
-import { RunStateError, type RunState } from './state';
+import { describeStatus, RunStateError, type RunState } from './state';
 import { track } from './tracker';
 
 /**
@@ -71,7 +71,7 @@ const hoursAfter = (now: Date, hours: number) => new Date(now.getTime() + hours 
  */
 export async function planRun(initial: RunState, deps: PlanningDeps): Promise<RunState> {
   if (initial.status !== 'received' && initial.status !== 'planning') {
-    throw new RunStateError('wrong_status', `A ${initial.status} run can't be planned.`);
+    throw new RunStateError('wrong_status', `This run is ${describeStatus(initial.status)}, so it can't be planned.`);
   }
   const limits = { ...DEFAULT_PLANNING_LIMITS, ...deps.limits };
   const now = deps.now();
@@ -203,7 +203,7 @@ const isPastDue = (state: RunState, now: Date) =>
 /** Records the answer to the open question. Call planRun with the result. */
 export function answerClarification(state: RunState, answer: string, now: Date): RunState {
   if (state.status !== 'needs_clarification') {
-    throw new RunStateError('wrong_status', `A ${state.status} run has no open question.`);
+    throw new RunStateError('wrong_status', `This run is ${describeStatus(state.status)}, so it has no open question.`);
   }
   if (isPastDue(state, now)) throw new RunStateError('expired', 'The question has expired.');
   const text = answer.trim();
@@ -236,7 +236,7 @@ export function answerClarification(state: RunState, answer: string, now: Date):
  */
 export function approvePlan(state: RunState, seenHash: string, now: Date): RunState {
   if (state.status !== 'awaiting_approval') {
-    throw new RunStateError('wrong_status', `A ${state.status} run has nothing to approve.`);
+    throw new RunStateError('wrong_status', `This run is ${describeStatus(state.status)}, so there is nothing to approve.`);
   }
   if (!state.planHash || seenHash !== state.planHash) {
     throw new RunStateError('plan_changed', 'The plan changed since it was shown. Review it again.');
@@ -248,7 +248,7 @@ export function approvePlan(state: RunState, seenHash: string, now: Date): RunSt
 /** The person declines the open question or the plan. */
 export function rejectRun(state: RunState): RunState {
   if (state.status !== 'needs_clarification' && state.status !== 'awaiting_approval') {
-    throw new RunStateError('wrong_status', `A ${state.status} run can't be rejected.`);
+    throw new RunStateError('wrong_status', `This run is ${describeStatus(state.status)}, so it can't be rejected.`);
   }
   return { ...state, status: 'rejected', pendingUntil: null };
 }

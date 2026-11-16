@@ -40,6 +40,7 @@ export {
   type QueryAttempt,
   expireRun,
   MAX_ANSWER_LENGTH,
+  describeStatus,
   MAX_REQUEST_LENGTH,
   newRun,
   planRun,

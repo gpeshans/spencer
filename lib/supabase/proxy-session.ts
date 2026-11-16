@@ -40,6 +40,10 @@ export async function updateSession(request: NextRequest) {
   const isPublicPath = pathname.startsWith('/login') || pathname.startsWith('/auth');
 
   if (!user && !isPublicPath) {
+    // A fetch from the app gets a 401 it can act on, not the login page's HTML.
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: { code: 'unauthorized', message: 'Sign in first.' } }, { status: 401 });
+    }
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     return NextResponse.redirect(url);

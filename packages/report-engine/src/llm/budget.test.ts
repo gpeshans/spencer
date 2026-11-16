@@ -39,6 +39,14 @@ describe('createRunBudget', () => {
     expect(budget.spentUsd()).toBeCloseTo(0.55, 10);
   });
 
+  it('can start from what the run spent in earlier requests', async () => {
+    const budget = createRunBudget(0.5, 0.45);
+    expect(await budget.before('sql')).toEqual({ ok: true });
+    budget.after(0.06);
+    expect((await budget.before('narrative')).ok).toBe(false);
+    expect(() => createRunBudget(0.5, -1)).toThrow('must not be negative');
+  });
+
   it('ignores negative costs', () => {
     const budget = createRunBudget(1);
     budget.after(-5);

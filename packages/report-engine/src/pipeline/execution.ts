@@ -5,7 +5,7 @@ import type { SemanticModel } from '../semantic';
 import { DEFAULT_ALLOWED_FUNCTIONS, type SqlGuard } from '../sql-guard';
 import { checkOutcome, checkSql, repairRequest, sqlRequest, type CheckedSql, type SectionSql, type SqlAnswer } from '../stages/sql';
 import { todayIn } from './planning';
-import { RunStateError, type RunState, type SectionResult } from './state';
+import { describeStatus, RunStateError, type RunState, type SectionResult } from './state';
 import { track } from './tracker';
 
 /**
@@ -78,7 +78,7 @@ export interface ExecutionDeps {
 export async function executeRun(initial: RunState, deps: ExecutionDeps): Promise<RunState> {
   const plan = initial.plan;
   if (initial.status !== 'executing' || !plan) {
-    throw new RunStateError('wrong_status', `A ${initial.status} run has no approved plan to execute.`);
+    throw new RunStateError('wrong_status', `This run is ${describeStatus(initial.status)}, so it has no approved plan to execute.`);
   }
   const limits = { ...DEFAULT_EXECUTION_LIMITS, ...deps.limits };
   const functions = deps.functions ?? DEFAULT_ALLOWED_FUNCTIONS;

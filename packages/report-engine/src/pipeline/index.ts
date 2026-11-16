@@ -18,6 +18,7 @@ export {
   type PlanningLimits,
 } from './planning';
 export {
+  describeStatus,
   MAX_REQUEST_LENGTH,
   newRun,
   RunStateError,

@@ -79,6 +79,24 @@ export interface RunState {
 
 export const MAX_REQUEST_LENGTH = 2000;
 
+const STATUS_WORDS: Readonly<Record<RunStatus, string>> = {
+  received: 'just received',
+  planning: 'being planned',
+  needs_clarification: 'waiting for an answer',
+  awaiting_approval: 'waiting for approval',
+  executing: 'running',
+  succeeded: 'finished',
+  partial: 'finished with gaps',
+  failed: 'failed',
+  rejected: 'rejected',
+  expired: 'expired',
+};
+
+/** A run's status in words, for messages people see: "waiting for approval". */
+export function describeStatus(status: RunStatus): string {
+  return STATUS_WORDS[status];
+}
+
 export class RunStateError extends Error {
   constructor(
     readonly code: 'bad_request' | 'wrong_status' | 'plan_changed' | 'expired',

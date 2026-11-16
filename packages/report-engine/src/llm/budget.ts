@@ -1,9 +1,14 @@
 import type { SpendGuard } from './types';
 
-/** A per-run spend limit (docs/report-engine-spec.md §5.7; default $0.50). */
-export function createRunBudget(maxUsd: number): SpendGuard & { spentUsd(): number } {
+/**
+ * A per-run spend limit (docs/report-engine-spec.md §5.7; default $0.50). A run
+ * spans several requests (planning, then execution after approval), so it can
+ * start from what the run has already spent.
+ */
+export function createRunBudget(maxUsd: number, alreadySpentUsd = 0): SpendGuard & { spentUsd(): number } {
   if (!(maxUsd > 0)) throw new Error('createRunBudget: maxUsd must be positive');
-  let spent = 0;
+  if (!(alreadySpentUsd >= 0)) throw new Error('createRunBudget: alreadySpentUsd must not be negative');
+  let spent = alreadySpentUsd;
   return {
     async before() {
       return spent < maxUsd
