@@ -1,0 +1,15 @@
+# report-engine
+
+Conversational, read-only reports over Postgres and Supabase. A request in plain language becomes a plan, then SQL that is checked and run under the requesting user's own data permissions, then a report rendered for a UI or as a PDF.
+
+This is the working copy inside spencer. It is meant to be published as `querybrief` under Apache-2.0. The design is in [`docs/report-engine-spec.md`](../../docs/report-engine-spec.md).
+
+## Rules for this package
+
+- **Standalone.** Nothing here imports spencer code (`@/…`); a lint rule enforces it. Spencer depends on the engine, never the other way round, so the package can move to its own repo unchanged.
+- **Tests.** `npm test` here runs the unit tests. Spencer's `npm test` also runs the database tests in `tests/db/` against a throwaway local Postgres (Docker).
+
+## What's here so far (M0)
+
+- `core/run-status.ts`: the run lifecycle. It must match the `report_runs.status` check constraint (spencer migration 0008).
+- `supabase/signed-scope.ts`: signs the `reports.scope` value that the database function `reporting.scope_group_id()` verifies.
