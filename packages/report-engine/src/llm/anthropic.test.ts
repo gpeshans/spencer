@@ -382,6 +382,16 @@ describe('anthropic provider: errors', () => {
     expect(records[0]!.errorClass).toBe(errorClass);
   });
 
+  it("keeps the API's explanation of a rejected request", async () => {
+    const { llm } = setup([
+      { status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: 'Schema is too   complex for compilation.' } } },
+    ]);
+    expect(await llm.generate(request())).toMatchObject({
+      ok: false,
+      error: { code: 'request_failed', message: 'The model request was rejected (bad_request): Schema is too complex for compilation.' },
+    });
+  });
+
   it('classifies rate limits and server errors as transient', async () => {
     const { llm, records } = setup([apiError(429, 'rate_limit_error'), apiError(500, 'api_error')]);
     const result = await llm.generate(request());
