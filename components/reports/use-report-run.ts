@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { RunState } from 'report-engine';
 import { toast } from 'sonner';
 
-import { fetchRun, isWorking, postRun, ReportApiError, streamRun } from '@/lib/reports/client';
+import { fetchRun, isWorking, postRun, ReportApiError, startPolling, streamRun } from '@/lib/reports/client';
 
 const say = (error: unknown) =>
   toast.error(error instanceof ReportApiError ? error.message : 'Something went wrong. Try again in a moment.');
@@ -51,9 +51,9 @@ export function useReportRun(initial: RunState | null, pollMs: number) {
   const working = run ? isWorking(run.status) : false;
   useEffect(() => {
     if (!id || !working || streaming) return;
-    const timer = setInterval(() => void refresh(id), pollMs);
-    return () => clearInterval(timer);
-  }, [id, working, streaming, pollMs, refresh]);
+    // Stopped when a stream starts or the status changes; a late answer is dropped.
+    return startPolling(id, pollMs, setRun);
+  }, [id, working, streaming, pollMs]);
 
   const act = useCallback(
     async (action: 'approve' | 'reject', body: unknown) => {

@@ -1,7 +1,7 @@
 import type { RunState } from 'report-engine';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { fetchRun, postRun, ReportApiError, streamRun } from './client';
+import { fetchRun, postRun, ReportApiError, startPolling, streamRun } from './client';
 import { sseMessage } from './sse';
 
 const state = (status: RunState['status']) => ({ id: 'run-1', status }) as RunState;
@@ -75,5 +75,52 @@ describe('postRun and fetchRun', () => {
   it('fall back to a generic message when the error is not JSON', async () => {
     respondWith(new Response('<html>', { status: 502 }));
     await expect(fetchRun('run-1')).rejects.toMatchObject({ status: 502, message: 'Something went wrong. Try again in a moment.' });
+  });
+});
+
+describe('startPolling', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('keeps one request in flight, and asks again a poll interval after each answer', async () => {
+    vi.useFakeTimers();
+    const resolvers: Array<(run: RunState) => void> = [];
+    const load = vi.fn(() => new Promise<RunState>((resolve) => resolvers.push(resolve)));
+    const seen: string[] = [];
+    const stop = startPolling('run-1', 1000, (run) => seen.push(run.status), load);
+
+    await vi.advanceTimersByTimeAsync(5000); // a slow answer: no second request meanwhile
+    expect(load).toHaveBeenCalledTimes(1);
+    resolvers[0]!(state('executing'));
+    await vi.advanceTimersByTimeAsync(999);
+    expect(load).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(seen).toEqual(['executing']);
+    stop();
+  });
+
+  it('drops an answer that arrives after it was stopped', async () => {
+    vi.useFakeTimers();
+    let resolve: (run: RunState) => void = () => {};
+    const load = vi.fn(() => new Promise<RunState>((done) => (resolve = done)));
+    const seen: string[] = [];
+    const stop = startPolling('run-1', 1000, (run) => seen.push(run.status), load);
+
+    await vi.advanceTimersByTimeAsync(1000);
+    stop();
+    resolve(state('executing'));
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(seen).toEqual([]);
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps polling after a failed request', async () => {
+    vi.useFakeTimers();
+    const load = vi.fn().mockRejectedValueOnce(new Error('network')).mockResolvedValue(state('succeeded'));
+    const seen: string[] = [];
+    const stop = startPolling('run-1', 1000, (run) => seen.push(run.status), load);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(seen).toEqual(['succeeded']);
+    stop();
   });
 });

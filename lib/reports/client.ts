@@ -75,3 +75,32 @@ export async function fetchRun(id: string): Promise<RunState> {
   if (!response.ok) throw await errorOf(response);
   return ((await response.json()) as { run: RunState }).run;
 }
+
+/**
+ * Polls a run one request at a time: the next request goes out pollMs after
+ * the last answer. The returned function stops it, and an answer that comes
+ * back after that is dropped, so a late poll can't roll the page back.
+ */
+export function startPolling(
+  id: string,
+  pollMs: number,
+  onRun: (run: RunState) => void,
+  load: (id: string) => Promise<RunState> = fetchRun,
+): () => void {
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const tick = async () => {
+    try {
+      const next = await load(id);
+      if (!stopped) onRun(next);
+    } catch {
+      // The next tick tries again.
+    }
+    if (!stopped) timer = setTimeout(() => void tick(), pollMs);
+  };
+  timer = setTimeout(() => void tick(), pollMs);
+  return () => {
+    stopped = true;
+    clearTimeout(timer);
+  };
+}
