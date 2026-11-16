@@ -6,6 +6,7 @@ import { priceOf } from '../llm';
 import type { AggregateQuery } from '../plan/query';
 import { buildVocabulary } from '../plan/vocabulary';
 import { testModel } from '../testing/model';
+import { countUnions } from '../testing/schema';
 import type { Intent } from './intent';
 import {
   approvalReasons,
@@ -15,6 +16,7 @@ import {
   planRequest,
   planSchema,
   renderPlanInput,
+  toPlanDraft,
   type PlanSection,
   type ReportPlan,
 } from './plan';
@@ -63,7 +65,7 @@ function plan(fields: Partial<ReportPlan> = {}): ReportPlan {
   };
 }
 
-const check = (value: ReportPlan) => checkPlan(value, { vocabulary, values });
+const check = (value: ReportPlan) => checkPlan(toPlanDraft(value), { vocabulary, values });
 const issuesOf = (value: ReportPlan) => {
   const verdict = check(value);
   return verdict.verdict === 'invalid' ? verdict.issues : [];
@@ -72,15 +74,17 @@ const issuesOf = (value: ReportPlan) => {
 describe('planSchema', () => {
   it('accepts a plan whose queries name only what the model has', () => {
     const schema = planSchema(vocabulary);
-    expect(schema.safeParse(plan()).success).toBe(true);
+    expect(schema.safeParse(toPlanDraft(plan())).success).toBe(true);
     const broken = plan({ sections: [section({ id: 'x', query: spend({ metrics: ['profit'] }) })] });
-    expect(schema.safeParse(broken).success).toBe(false);
+    expect(schema.safeParse(toPlanDraft(broken)).success).toBe(false);
   });
 
-  it('converts to a JSON schema with the structured query inside', () => {
-    const json = JSON.stringify(betaZodOutputFormat(planSchema(vocabulary)).schema);
-    expect(json).toContain('"enum":["figure","table","bar","line","pie","text"]');
-    expect(json).toContain('"const":"reporting.spendings"');
+  it('converts to a JSON schema well under the API limit of 16 union-typed fields', () => {
+    const json = betaZodOutputFormat(planSchema(vocabulary)).schema as Record<string, unknown>;
+    expect(JSON.stringify(json)).toContain('"enum":["figure","table","bar","line","pie","text"]');
+    expect(JSON.stringify(json)).toContain('"reporting.spendings"');
+    // A section's period (a range, or null) and a derived value's other side (or null).
+    expect(countUnions(json)).toBe(2);
   });
 });
 

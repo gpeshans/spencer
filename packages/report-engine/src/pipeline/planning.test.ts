@@ -5,7 +5,7 @@ import type { QueryOutcome, ReportQuery, RunOutcome } from '../pg';
 import { buildVocabulary } from '../plan/vocabulary';
 import { cachePrefix } from '../prompt/context';
 import type { Intent } from '../stages/intent';
-import type { PlanSection, ReportPlan } from '../stages/plan';
+import { toPlanDraft, type PlanSection, type ReportPlan } from '../stages/plan';
 import { testModel } from '../testing/model';
 import {
   answerClarification,
@@ -162,7 +162,7 @@ const run = () => newRun('run-1', '  How much did we spend per category in Octob
 
 describe('planRun', () => {
   it('goes from the request to a plan that is ready to run', async () => {
-    const { deps, requests, saved, ran } = setup([{ output: intent() }, { output: plan() }]);
+    const { deps, requests, saved, ran } = setup([{ output: intent() }, { output: toPlanDraft(plan()) }]);
     const state = await planRun(run(), deps);
 
     expect(state).toMatchObject({
@@ -200,7 +200,7 @@ describe('planRun', () => {
   });
 
   it('keeps the household values from the LLM when they are not shared', async () => {
-    const { deps, requests } = setup([{ output: intent() }, { output: plan() }], {}, { shareValues: false });
+    const { deps, requests } = setup([{ output: intent() }, { output: toPlanDraft(plan()) }], {}, { shareValues: false });
     await planRun(run(), deps);
     expect(requests.every((request) => !request.input.includes('untrusted-values'))).toBe(true);
   });
@@ -224,7 +224,7 @@ describe('planRun', () => {
       plan: null,
       pendingUntil: null,
     });
-    const second = setup([{ output: intent() }, { output: plan() }]);
+    const second = setup([{ output: intent() }, { output: toPlanDraft(plan()) }]);
     const done = await planRun(answered, second.deps);
     expect(done).toMatchObject({ status: 'executing', costUsd: 0.03 });
     expect(second.requests[0]!.input).toMatch(/untrusted-clarifications-[0-9a-f]{16}>\nQuestion: Which month\?\nAnswer: October/);
@@ -250,7 +250,7 @@ describe('planRun', () => {
 
   it('retries an intent that breaks the rules once, with the problems listed', async () => {
     const bad = intent({ period: { from: '2026-11-01', to: '2026-10-01' } });
-    const once = setup([{ output: bad }, { output: intent() }, { output: plan() }]);
+    const once = setup([{ output: bad }, { output: intent() }, { output: toPlanDraft(plan()) }]);
     expect((await planRun(run(), once.deps)).status).toBe('executing');
     expect(once.requests[1]!.input).toMatch(/untrusted-issues-[0-9a-f]{16}>\n- period: "from" \(2026-11-01\) must be before/);
 
@@ -298,7 +298,7 @@ describe('planRun', () => {
 
   it('asks for approval when stage 2 found a gap, and the approved plan can run', async () => {
     const late = { first: '2026-10-12', last: '2026-11-15', rows: 9 };
-    const { deps } = setup([{ output: intent() }, { output: plan() }], { coverage: { 'reporting.spendings': late } });
+    const { deps } = setup([{ output: intent() }, { output: toPlanDraft(plan()) }], { coverage: { 'reporting.spendings': late } });
     const state = await planRun(run(), deps);
     expect(state).toMatchObject({
       status: 'awaiting_approval',
@@ -313,10 +313,10 @@ describe('planRun', () => {
 
   it('asks for approval for a large plan or one that may cost more than the budget left', async () => {
     const five = plan(['a', 'b', 'c', 'd', 'e'].map((id) => section(id)));
-    const large = setup([{ output: intent() }, { output: five }]);
+    const large = setup([{ output: intent() }, { output: toPlanDraft(five) }]);
     expect((await planRun(run(), large.deps)).approval?.reasons).toEqual(['The plan has 5 sections, more than 4.']);
 
-    const poor = setup([{ output: intent() }, { output: plan() }], {}, { remainingUsd: () => 0.05 });
+    const poor = setup([{ output: intent() }, { output: toPlanDraft(plan()) }], {}, { remainingUsd: () => 0.05 });
     expect((await planRun(run(), poor.deps)).approval?.reasons).toEqual([
       expect.stringMatching(/^The rest of the run is estimated at \$0\.\d\d, more than the \$0\.05 left in its budget\.$/),
     ]);
@@ -324,7 +324,7 @@ describe('planRun', () => {
 
   it('retries a plan that fails its checks once, with the problems listed', async () => {
     const figure = plan([section('total', { display: 'figure' })]);
-    const { deps, requests } = setup([{ output: intent() }, { output: figure }, { output: plan() }]);
+    const { deps, requests } = setup([{ output: intent() }, { output: toPlanDraft(figure) }, { output: toPlanDraft(plan()) }]);
     expect((await planRun(run(), deps)).status).toBe('executing');
     expect(requests[2]!.input).toContain('- total: a figure is an aggregate with no dimensions and no grain');
   });
