@@ -51,3 +51,6 @@ next-env.d.ts
 supabase/.temp
 supabase/.branches
 supabase/.env
+
+# workspace packages
+packages/*/node_modules
