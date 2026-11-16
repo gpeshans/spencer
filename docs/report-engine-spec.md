@@ -453,7 +453,7 @@ Execution continues in `after()`, so it survives a closed tab. Small mutations (
 - **Database:** Vitest tests in `tests/db` with **two households**. They apply every migration to a throwaway `postgres:17.6` container (production's version), using a Supabase-shaped stub for the platform roles, `auth`, `extensions` and Vault. They skip themselves when Docker isn't available. Today everyone joins the first household at sign-up (`supabase/migrations/0001_init.sql:151-154`), so isolation between households has never been tested. The tests check that:
   - `reports_reader` sees only its own household through every view
   - forged, expired and missing scopes return no rows, and so do forged claims
-  - direct reads of base tables stay inside the scope and the granted columns. Security-invoker views need those column grants, and the validator rejects such reads anyway.
+  - `reports_reader` can't name base tables at all while the public schema grants it nothing (it gets no `USAGE` on `public`; the views don't need it). Where `PUBLIC` keeps the Postgres default `USAGE` on `public`, direct reads still stay inside the scope and the granted columns, and the validator rejects them anyway.
   - write attempts fail, even in a read-write transaction
   - every view is `security_invoker`
   - the default grants are revoked, and `authenticated` can't update `profiles.group_id` (migration 0007)
