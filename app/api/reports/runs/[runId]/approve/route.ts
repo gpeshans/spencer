@@ -1,7 +1,7 @@
 import { approvePlan } from 'report-engine';
 
 import { failure, isRunId, problem, readJson, signedIn } from '@/lib/reports/http';
-import { expireIfDue, runInBackground } from '@/lib/reports/runner';
+import { runInBackground, settleRun } from '@/lib/reports/runner';
 import { claimRun, loadRun, recordEvent } from '@/lib/reports/store';
 
 // Execution continues after the response; the page polls the run.
@@ -21,10 +21,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ run
   if (!isRunId(runId)) return problem(404, 'not_found', 'There is no such report run.');
   const planHash = typeof body.planHash === 'string' ? body.planHash : '';
   try {
-    const state = await loadRun(me.supabase, runId);
-    if (!state) return problem(404, 'not_found', 'There is no such report run.');
-    const approved = approvePlan(await expireIfDue(state, me.owner), planHash, new Date());
-    if (!(await claimRun(approved, me.owner.ownerId, ['awaiting_approval'], planHash))) {
+    const stored = await loadRun(me.supabase, runId);
+    if (!stored) return problem(404, 'not_found', 'There is no such report run.');
+    const approved = approvePlan(await settleRun(stored, me.owner), planHash, new Date());
+    if (!(await claimRun(approved, me.owner.ownerId, ['awaiting_approval'], { planHash }))) {
       return problem(409, 'conflict', 'The run has moved on. Reload it.');
     }
     await recordEvent('approve', me.owner, runId, { planHash });
