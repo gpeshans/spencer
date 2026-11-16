@@ -22,14 +22,18 @@ export interface TestDatabase {
   stop(): Promise<void>;
 }
 
-/** Starts a throwaway Postgres container on a random local port. */
+/**
+ * Starts a throwaway Postgres container on a random local port. Containers
+ * carry the label `spencer-dbtest`, so a crashed run can be cleaned up with
+ * `docker rm -f $(docker ps -q --filter label=spencer-dbtest)`.
+ */
 export async function startDatabase(): Promise<TestDatabase> {
   const name = `spencer-dbtest-${randomBytes(4).toString('hex')}`;
   const adminPassword = randomBytes(16).toString('hex');
   execFileSync(
     'docker',
     [
-      'run', '-d', '--rm', '--name', name,
+      'run', '-d', '--rm', '--name', name, '--label', 'spencer-dbtest',
       '-e', 'POSTGRES_USER=supabase_admin',
       '-e', `POSTGRES_PASSWORD=${adminPassword}`,
       '-e', 'POSTGRES_DB=postgres',

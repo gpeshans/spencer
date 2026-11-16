@@ -27,6 +27,23 @@ function monthStart(offset: number): string {
     .slice(0, 10);
 }
 
+/** Thrown to roll a transaction back while handing a value out of it. */
+class Rollback extends Error {
+  constructor(readonly value: unknown) {
+    super('rollback');
+  }
+}
+
+async function rolledBack(work: Promise<unknown>): Promise<unknown> {
+  try {
+    await work;
+  } catch (error) {
+    if (error instanceof Rollback) return error.value;
+    throw error;
+  }
+  throw new Error('expected the transaction to roll back');
+}
+
 describe.skipIf(!dockerAvailable())('migrations 0001-0008 on a local Postgres 17.6', () => {
   let db: TestDatabase;
   let reader: postgres.Sql;
@@ -94,6 +111,14 @@ describe.skipIf(!dockerAvailable())('migrations 0001-0008 on a local Postgres 17
       await expect(reader`select count(*) from reporting.spendings`).rejects.toThrow(/permission denied/);
     });
 
+    it('applies its session defaults', async () => {
+      const [settings] = await reader`
+        select current_setting('default_transaction_read_only') as read_only,
+               current_setting('statement_timeout') as statement_timeout,
+               current_setting('idle_in_transaction_session_timeout') as idle_timeout`;
+      expect(settings).toEqual({ read_only: 'on', statement_timeout: '5s', idle_timeout: '15s' });
+    });
+
     it('cannot become any other role', async () => {
       for (const role of ['authenticated', 'service_role', 'postgres']) {
         await expect(
@@ -116,6 +141,44 @@ describe.skipIf(!dockerAvailable())('migrations 0001-0008 on a local Postgres 17
       const other = await asReader(scopeFor(OTHER), (tx) => tx`
         select member_name, category_label from reporting.spendings`);
       expect(other.map((r) => [r.member_name, r.category_label])).toEqual([['Bob', 'Groceries']]);
+    });
+
+    it('scopes every other view to the signed household too', async () => {
+      const other = await asReader(scopeFor(OTHER), async (tx) => ({
+        household: await tx`select name from reporting.household`,
+        members: await tx`select member_name from reporting.members`,
+        categories: await tx`select key from reporting.categories order by key`,
+        targets: await tx`select count(*)::int as n from reporting.bucket_targets`,
+      }));
+      expect(other.household.map((r) => r.name)).toEqual(['Other household']);
+      expect(other.members.map((r) => r.member_name)).toEqual(['Bob']);
+      expect(other.categories.map((r) => r.key)).toEqual(['groceries', 'salary']);
+      expect(other.targets[0]?.n).toBe(0);
+
+      const family = await asReader(scopeFor(FAMILY), async (tx) => ({
+        household: await tx`select name from reporting.household`,
+        members: await tx`select member_name from reporting.members`,
+        targets: await tx`select count(*)::int as n from reporting.bucket_targets`,
+      }));
+      expect(family.household.map((r) => r.name)).toEqual(['Family']);
+      expect(family.members.map((r) => r.member_name)).toEqual(['Alice']);
+      expect(family.targets[0]?.n).toBeGreaterThan(0);
+    });
+
+    it('sees every reporting view empty without a scope', async () => {
+      const views = await db.admin`
+        select c.relname
+        from pg_class c
+        join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'reporting' and c.relkind = 'v'
+        order by c.relname`;
+      expect(views.length).toBeGreaterThan(0);
+      for (const { relname } of views) {
+        const [row] = await asReader(null, (tx) =>
+          tx.unsafe(`select count(*)::int as n from reporting.${relname}`),
+        );
+        expect(row?.n, relname).toBe(0);
+      }
     });
 
     it('sees nothing under a tampered, expired, foreign or missing scope', async () => {
@@ -143,6 +206,20 @@ describe.skipIf(!dockerAvailable())('migrations 0001-0008 on a local Postgres 17
       expect(rows.map((r) => r.member_name)).toEqual(['Alice']);
     });
 
+    it('fails closed when the Vault key is missing', async () => {
+      const scope = scopeFor(FAMILY);
+      const count = await rolledBack(
+        db.admin.begin(async (tx) => {
+          await tx`delete from vault.secrets where name = 'reports_scope_key'`;
+          await tx`set local role reports_reader`;
+          await tx`select set_config('reports.scope', ${scope}, true)`;
+          const [row] = await tx`select count(*)::int as n from reporting.spendings`;
+          throw new Rollback(row?.n);
+        }),
+      );
+      expect(count).toBe(0);
+    });
+
     it('cannot read emails, auth, the vault or the run logs', async () => {
       const forbidden = [
         'select email from public.profiles',
@@ -159,9 +236,33 @@ describe.skipIf(!dockerAvailable())('migrations 0001-0008 on a local Postgres 17
       }
     });
 
-    it('reads base tables only inside its scope and its granted columns', async () => {
-      const rows = await asReader(scopeFor(OTHER), (tx) => tx`select display_name from public.profiles`);
-      expect(rows.map((r) => r.display_name)).toEqual(['Bob']);
+    it('cannot reach base tables by name while the public schema grants it nothing', async () => {
+      await expect(
+        asReader(scopeFor(OTHER), (tx) => tx`select display_name from public.profiles`),
+      ).rejects.toThrow(/permission denied for schema public/);
+    });
+
+    it('stays inside its scope and granted columns where the public schema is open', async () => {
+      // Postgres lets every role use the public schema by default, and Supabase
+      // may keep that default. The grant happens inside a rolled-back
+      // transaction, so other tests don't see it.
+      const withOpenSchema = (run: (tx: postgres.TransactionSql) => Promise<unknown>) =>
+        rolledBack(
+          db.admin.begin(async (tx) => {
+            await tx`grant usage on schema public to reports_reader`;
+            await tx`set local role reports_reader`;
+            await tx`select set_config('reports.scope', ${scopeFor(OTHER)}, true)`;
+            throw new Rollback(await run(tx));
+          }),
+        );
+
+      const names = (await withOpenSchema((tx) => tx`select display_name from public.profiles`)) as Array<{
+        display_name: string;
+      }>;
+      expect(names.map((r) => r.display_name)).toEqual(['Bob']);
+      await expect(withOpenSchema((tx) => tx`select email from public.profiles`)).rejects.toThrow(
+        /permission denied for table profiles/,
+      );
     });
 
     it('cannot write, even in a read-write transaction', async () => {
@@ -194,6 +295,27 @@ describe.skipIf(!dockerAvailable())('migrations 0001-0008 on a local Postgres 17
         'spendings',
       ]);
       for (const view of views) expect(view.options, view.relname).toContain('security_invoker=true');
+    });
+
+    it('read only tables that have row-level security on', async () => {
+      const tables = await db.admin`
+        select distinct t.relname, t.relrowsecurity
+        from pg_rewrite r
+        join pg_class v on v.oid = r.ev_class
+        join pg_depend d on d.classid = 'pg_rewrite'::regclass and d.objid = r.oid
+        join pg_class t on t.oid = d.refobjid
+        where v.relnamespace = 'reporting'::regnamespace
+          and t.relkind = 'r'
+        order by t.relname`;
+      expect(tables.map((t) => t.relname)).toEqual([
+        'bucket_targets',
+        'categories',
+        'groups',
+        'income',
+        'profiles',
+        'spendings',
+      ]);
+      for (const table of tables) expect(table.relrowsecurity, table.relname).toBe(true);
     });
 
     it('carry each income category forward until a newer entry replaces it', async () => {
@@ -229,6 +351,18 @@ describe.skipIf(!dockerAvailable())('migrations 0001-0008 on a local Postgres 17
       const renamed = await asUser(ALICE, (tx) => tx`
         update public.profiles set display_name = 'Alice' where id = ${ALICE} returning id`);
       expect(renamed).toHaveLength(1);
+    });
+
+    it('keeps the reporting schema away from app users', async () => {
+      await expect(asUser(ALICE, (tx) => tx`select count(*) from reporting.spendings`)).rejects.toThrow(
+        /permission denied/,
+      );
+      await expect(
+        db.admin.begin(async (tx) => {
+          await tx`set local role anon`;
+          return tx`select reporting.scope_group_id()`;
+        }),
+      ).rejects.toThrow(/permission denied/);
     });
 
     it('gives anon no table access', async () => {

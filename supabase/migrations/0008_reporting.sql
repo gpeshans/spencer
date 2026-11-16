@@ -128,10 +128,16 @@ begin
     return null;
   end if;
 
-  if encode(
-       extensions.hmac(parts[1] || '.' || parts[2] || '.' || parts[3], signing_key, 'sha256'),
-       'hex'
-     ) <> parts[4] then
+  -- Compare digests of the two signatures rather than the signatures
+  -- themselves, so the comparison's timing reveals nothing about how much of
+  -- a forged signature matches.
+  if extensions.digest(
+       encode(
+         extensions.hmac(parts[1] || '.' || parts[2] || '.' || parts[3], signing_key, 'sha256'),
+         'hex'
+       ),
+       'sha256'
+     ) <> extensions.digest(parts[4], 'sha256') then
     return null;
   end if;
 
@@ -150,6 +156,12 @@ comment on function reporting.scope_group_id() is
 -- ------------------------------------------------------------
 -- security_invoker views check privileges as the caller, so reports_reader
 -- needs SELECT on exactly the columns the views read. Never emails or avatars.
+--
+-- USAGE on schema public is deliberately not granted. The views resolved their
+-- tables when they were created, so they work without it, and without it
+-- reports_reader can't name a base table at all (unless PUBLIC holds USAGE on
+-- public, which is Postgres's default; the column grants and policies below
+-- still hold then).
 grant select (id, group_id, user_id, description, amount, category, bucket, spent_on, created_at)
   on public.spendings to reports_reader;
 grant select (group_id, category, amount, effective_from)

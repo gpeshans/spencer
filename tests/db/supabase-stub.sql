@@ -13,6 +13,9 @@ create role postgres login createrole bypassrls;
 grant anon, authenticated, service_role to postgres with inherit false, set true;
 
 grant create on database postgres to postgres;
+-- Assume the strictest public schema: no privileges for PUBLIC, so the
+-- migrations can't rely on Postgres defaults that Supabase may not keep.
+revoke all on schema public from public;
 grant usage, create on schema public to postgres;
 grant usage on schema public to anon, authenticated, service_role;
 
