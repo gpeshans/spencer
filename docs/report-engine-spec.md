@@ -324,30 +324,39 @@ Parser: `libpg-query` (the real Postgres grammar), pinned to the server's major 
 **Provider interface.** `core` owns an `LlmProvider` interface:
 
 ```
-generate({ stage, system, cachePrefix, input, schema, effort, maxTokens, signal })
-  → { output, usage, model, attempts, timings, stopReason, requestId }
+generate({ stage, cachePrefix, system, input, schema, effort, maxTokens, timeoutMs, signal })
+  → { ok: true, output, calls } | { ok: false, error: { code, message }, calls }
 ```
 
-**Anthropic adapter** (official `@anthropic-ai/sdk`):
+`calls` holds one record per attempt (built in M2a).
+
+**Anthropic adapter** (official `@anthropic-ai/sdk`, 1.7.0 or later):
 - `claude-opus-5-5` runs every stage, with the effort set per stage: intent `low`, plan `high`, SQL `high`, narrative `medium`. Adaptive thinking is always on for this model.
-- Every stage uses structured output.
-- **Prompt caching:** the semantic model and the fixed instructions form a stable prefix with a 1-hour cache. After the first call, most input tokens are cache reads.
+- Every stage uses structured output. The answer is validated again with zod, because the API can't enforce string lengths or numeric ranges. The SDK has kept `enum` and `const` in the schema since 1.7.0.
+- **Prompt caching:** the semantic model and the fixed instructions form a stable prefix, cached for 5 minutes by default (1 hour is an option).
+  - The cache key also covers the model, the effort and the output schema, so the stages of one run don't share an entry.
+  - The cache pays off when the same stage runs again within the TTL: a retry, a repair, the next question.
+  - *Corrected in M2a:* this spec first assumed one 1-hour entry shared by every stage. On that assumption most input tokens would have been cache reads.
 - Anthropic's server-side refusal fallback (`fallbacks: "default"`) is enabled.
+- Requests don't stream. Answers are small JSON documents, and every attempt has a deadline. A non-streamed refusal fallback also returns only the final model's answer.
 
 **Retry and fallback policy.** This is beep-server's pattern, rewritten without beep-server's global patching:
-1. The SDK retries with backoff on 408, 409, 429, 5xx and connection errors, a bounded number of times.
-2. An empty or truncated output (`max_tokens`), or a timeout, counts as a failure and gets one more attempt.
+1. The SDK retries with backoff on 408, 409, 429, 5xx, connection errors and timeouts, a bounded number of times.
+2. An empty, truncated (`max_tokens`) or schema-invalid answer counts as a failure and gets one more try on the same model. A truncated answer gets twice the room.
 3. If it still fails, the same step runs on `claude-sonnet-5-5`.
-4. If that fails too, the stage fails, and the run reports which stage failed and why.
+4. If that fails too, the stage fails, and the run reports which stage failed and why. Refusals and other 4xx errors end the stage at once.
 
 Each attempt has its own cancellable deadline, so the run's total time stays bounded.
 
 **Usage and cost.** Each call records:
 - input, output, cache-write and cache-read tokens
 - the model requested and the model that served it, and any fallback reason
-- latency, time to first token, stop reason and request ID
+- latency, stop reason, request ID and error class
+- time to first token, which stays empty while requests don't stream
 
 Cost comes from a price table that includes cache pricing. beep-server's recorder ignored cache tokens.
+
+**Budgets** are checked before every attempt, so spend can pass a limit by at most one attempt.
 
 ## 7. Data model (migration 0008)
 
@@ -470,7 +479,7 @@ Execution continues in `after()`, so it survives a closed tab. Small mutations (
 
 ## 12. Cost estimate (Opus 5.5; to be measured)
 
-Rough figures per interactive report, with the schema prefix cached:
+Rough figures per interactive report. The schema prefix is about 4K tokens, roughly $0.02 per call uncached. It is cached per stage (§6), so within one run it is mostly written rather than read.
 
 | Stage | Approximate cost |
 |---|---|

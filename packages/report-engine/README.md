@@ -27,3 +27,16 @@ This is the working copy inside spencer. It is meant to be published as `querybr
   - **`introspect`** reads what the reporting role can see in the reporting schemas. It also flags every way a query could read past RLS: views without `security_invoker`, materialized views, foreign tables, tables without RLS, owner-rights views or unprotected tables behind the views, and untrusted `SECURITY DEFINER` functions.
   - **`buildSemanticModel`** regenerates the relations and `schemaHash`, keeps the curated sections (metrics, dimensions, synonyms, examples, suggested reports), and checks them with `sql-guard`.
   - **`checkFreshness`** detects a stale model.
+- `llm/` (M2a): the LLM layer. `LlmProvider.generate()` returns a validated answer or a typed failure, plus a record of every attempt.
+  - **Anthropic adapter** (`createAnthropicProvider`), on the official SDK:
+    - Claude Opus 5.5 with adaptive thinking and the effort set per stage.
+    - Structured output, validated again with zod, because the API can't enforce lengths or numeric ranges.
+    - A cached prefix, and Anthropic's server-side refusal fallback.
+  - **Retries and fallback:**
+    - The SDK retries transient errors.
+    - A truncated, empty or invalid answer gets one more try.
+    - After that, the step moves on to Claude Sonnet 5.5.
+    - Refusals and other 4xx errors end the call.
+  - **Records:** each attempt carries tokens (cache reads and writes included), cost from a price table, latency, stop reason, request ID, error class and fallback reason. They are shaped for `report_llm_calls`.
+  - **Budgets:** a `SpendGuard` is asked before every attempt. `createRunBudget` gives the per-run limit; `allGuards` combines it with a daily one.
+  - **Hooks:** the guard and `onCall` belong to the provider, so create one provider per run when they are run-scoped. That is cheap: the SDK client is light and `fetch` pools connections.

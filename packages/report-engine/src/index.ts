@@ -8,6 +8,29 @@ export {
 } from './core/run-status';
 export { signScope, type SignScopeInput } from './supabase/signed-scope';
 export {
+  addUsage,
+  allGuards,
+  costUsd,
+  createAnthropicProvider,
+  createRunBudget,
+  DEFAULT_PRICES,
+  priceOf,
+  UNKNOWN_MODEL_PRICE,
+  ZERO_USAGE,
+  type AnthropicProviderOptions,
+  type Effort,
+  type GenerateRequest,
+  type GenerateResult,
+  type LlmCallRecord,
+  type LlmFailure,
+  type LlmFailureCode,
+  type LlmProvider,
+  type LlmUsage,
+  type ModelPrice,
+  type PriceTable,
+  type SpendGuard,
+} from './llm';
+export {
   columnType,
   createPgExecutor,
   DEFAULT_EXECUTOR_LIMITS,
