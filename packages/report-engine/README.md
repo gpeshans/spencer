@@ -26,7 +26,8 @@ This is the working copy inside spencer. It is meant to be published as `querybr
   - **Values:** typed by column. Dates and timestamps stay as server text; numerics become numbers only when exact.
 - `semantic/` (M1c): the semantic model, stage 0.
   - **`introspect`** reads what the reporting role can see in the reporting schemas. It also flags every way a query could read past RLS: views without `security_invoker`, materialized views, foreign tables, tables without RLS, owner-rights views or unprotected tables behind the views, and untrusted `SECURITY DEFINER` functions.
-  - **`buildSemanticModel`** regenerates the relations and `schemaHash`, keeps the curated sections (metrics, dimensions, synonyms, examples, suggested reports), and checks them with `sql-guard`.
+  - **`buildSemanticModel`** regenerates the relations and `schemaHash`, keeps the curated sections (metrics, dimensions, column units, synonyms, examples, suggested reports), and checks them with `sql-guard`.
+  - **Units:** every metric has one (currency, count, percent in points, or number). `columnUnits` gives plain number columns theirs, e.g. an expense's amount is currency, so a listing shows it as money.
   - **`checkFreshness`** detects a stale model.
 - `llm/` (M2a): the LLM layer. `LlmProvider.generate()` returns a validated answer or a typed failure, plus a record of every attempt.
   - **Anthropic adapter** (`createAnthropicProvider`), on the official SDK:
@@ -86,3 +87,18 @@ This is the working copy inside spencer. It is meant to be published as `querybr
   - Every SQL version goes to `recordQuery`; spencer stores them in `report_queries`.
   - The compiled fallback comes in M3.
 - `pipeline/state.ts`: `RunState`, shared by planning and execution, with `results` per section. `pipeline/tracker.ts` holds their shared bookkeeping: checked transitions, saves, usage and stage times.
+- `report/`: the report a finished run shows (spec §8). It's safe in a browser (`report-engine/report`): no database, LLM or SQL parser.
+  - **`buildReport(run, vocabulary, { currency, styles })`** returns a `ReportDocument`, with sections that are figures, a chart with its table, a table, text, empty or failed.
+    - Each column's format comes from the semantic model: units, `columnUnits`, or a grain.
+    - It carries nothing about how the numbers were computed.
+  - **`chartFor`** turns a section into a chart spec: sideways bars for names, upright bars or lines over time, pies.
+    - Splits stack only when the metric adds up.
+    - Shapes that wouldn't read well stay tables.
+    - Colours come from the consumer's `styles` (hex only), else a palette.
+  - **`formatValue`** shows a value in its column's format and a locale: money in the currency, months by name, and so on.
+- `pdf/`: the report as a PDF (`report-engine/pdf`, server-only), with @react-pdf/renderer.
+  - **`renderReportPdf(document, { locale, asOf, brand, fonts })`** returns the file.
+    - The page is A4, in the consumer's TTF fonts, or Helvetica without them.
+    - Figures, charts and tables come from the same document as the app's page.
+    - Every page carries a footer with page numbers.
+  - **Nothing is fetched while rendering:** no images, no remote fonts, no links.

@@ -70,6 +70,13 @@ export async function postRun(url: string, body: unknown = {}): Promise<RunState
   return ((await response.json()) as { run: RunState }).run;
 }
 
+/** The finished report as a PDF file. */
+export async function fetchPdf(id: string): Promise<Blob> {
+  const response = await fetch(`/api/reports/runs/${id}/pdf`, { cache: 'no-store' });
+  if (!response.ok) throw await errorOf(response);
+  return response.blob();
+}
+
 export async function fetchRun(id: string): Promise<RunState> {
   const response = await fetch(`/api/reports/runs/${id}`, { cache: 'no-store' });
   if (!response.ok) throw await errorOf(response);

@@ -26,6 +26,14 @@ describe('buildVocabulary', () => {
     expect(vocabulary.dimensions.map((dimension) => dimension.name)).toEqual(['category', 'bucket', 'member', 'income_category']);
   });
 
+  it('gives a number column the unit the model declares for it', () => {
+    const units = (relation: string) =>
+      Object.fromEntries(vocabulary.relation(relation)!.columns.map((column) => [column.name, column.unit ?? null]));
+    expect(units('reporting.spendings')).toMatchObject({ amount: 'currency', spent_on: null, description: null });
+    expect(units('reporting.monthly_income')).toMatchObject({ amount: 'currency' });
+    expect(units('reporting.categories')).toMatchObject({ sort: null });
+  });
+
   it('classifies column types', () => {
     expect(columnKind('numeric(12,2)')).toBe('number');
     expect(columnKind('character varying(40)')).toBe('text');

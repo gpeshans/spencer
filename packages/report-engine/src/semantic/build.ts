@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 
+import { columnKind } from '../plan/vocabulary';
 import { createSqlGuard } from '../sql-guard';
 import type { Introspection } from './introspect';
 import type { SemanticModel } from './model';
@@ -51,6 +52,7 @@ export async function buildSemanticModel({ introspection, previous, now = new Da
     relations: introspection.relations,
     metrics: previous?.metrics ?? [],
     dimensions: previous?.dimensions ?? [],
+    columnUnits: previous?.columnUnits ?? [],
     synonyms: previous?.synonyms ?? [],
     examples: previous?.examples ?? [],
     suggestedReports: previous?.suggestedReports ?? [],
@@ -88,6 +90,17 @@ export async function checkCurated(model: SemanticModel): Promise<string[]> {
     } else if (!relation.columns.some((column) => column.name === dimension.column)) {
       problems.push(`dimension ${dimension.name}: ${dimension.relation} has no column ${dimension.column}.`);
     }
+  }
+
+  const unitKeys = model.columnUnits.map((entry) => `${entry.relation}.${entry.column}`);
+  for (const key of new Set(duplicates(unitKeys))) problems.push(`column unit ${key} is defined twice.`);
+  for (const entry of model.columnUnits) {
+    const name = `column unit ${entry.relation}.${entry.column}`;
+    const relation = relations.get(entry.relation);
+    const column = relation?.columns.find((candidate) => candidate.name === entry.column);
+    if (!relation) problems.push(`${name}: ${entry.relation} is not a readable relation.`);
+    else if (!column) problems.push(`${name}: ${entry.relation} has no column ${entry.column}.`);
+    else if (columnKind(column.type) !== 'number') problems.push(`${name}: ${column.type} is not a number type.`);
   }
 
   for (const [index, example] of model.examples.entries()) {

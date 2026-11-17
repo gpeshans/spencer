@@ -94,6 +94,11 @@ Every stage reads the previous stage's typed result, saves its own result on the
 2. The LLM drafts descriptions, synonyms ("groceries" → a category), metric definitions (e.g. `spend = sum(amount) from reporting.spendings`), dimensions, example questions and suggested reports.
 3. You review the file and commit it.
 
+- **Units.** Each metric has a unit: currency, count, percent (in points, 0–100) or number.
+  - Plain numeric columns get theirs in the curated `columnUnits` section, e.g. both `amount` columns are currency and `bucket_targets.target_pct` is percent.
+  - The builder checks that each entry names an existing number column.
+  - Reports use the units to show values; the prompts don't change.
+
 **Checks:**
 - Every metric definition compiles and passes `EXPLAIN`.
 - Every view is `security_invoker`.
@@ -422,6 +427,41 @@ Cost comes from a price table that includes cache pricing. beep-server's recorde
 - Uses `@react-pdf/renderer` 4.1 or later, the first version supporting React 19.
 - Charts are drawn with its SVG primitives from the same chart spec, in the same colors as the app.
 
+**As built (2026-11-17), before M3's post-processing:**
+- **The document.**
+  - `report/` builds a v1 `ReportDocument` from a finished run: `buildReport(run, vocabulary, { currency, styles })`.
+  - It's built when shown, not stored, so older runs get it too.
+  - Sections are figures, a chart with its table, a table, text, empty or failed.
+  - SQL, parameters, cost and failure causes never enter it.
+  - Still to come in M3: the period, assumptions, verification badges, the narrative and the query summaries footer. Stage 9 will save the document.
+- **Values.**
+  - Each column's format comes from the semantic model: a metric's unit, a plain column's `columnUnits` entry, or the grain of a time column (labelled "Month", "Week" and so on).
+  - Without one, the format follows the type the database returned.
+  - `formatValue` shows them, with money in the same `Intl` form as spencer's `formatMoney`.
+  - The page and the PDF share the formatter, the document has no locale, and `report-engine/report` is safe in a browser.
+- **Charts** follow the plan's display:
+  - **Bar:** sideways for names, so labels fit on a phone; upright for time. A split by a second dimension stacks only when the metric is a sum or a count.
+  - **Line:** time, with a line per metric or per value of one dimension.
+  - **Pie:** one metric by one dimension.
+  - **Becomes a table instead:** more than 10 series, series in mixed formats, or more than 40 bars that aren't time (more than 40 over time become a line).
+  - **Becomes bars instead:** a pie with more than 8 slices or a negative value.
+- **Colours.**
+  - The consumer passes labels and colours by dimension value. Spencer passes its category, bucket and member colours, and the bucket labels.
+  - Other series take a fixed Open Color palette.
+  - Only hex colours are accepted, because the app writes them into a style sheet.
+- **In the app** (`components/reports/report-*.tsx`):
+  - Recharts through `ChartContainer`, without animation.
+  - Each chart has a "Show the numbers" toggle with its formatted table.
+- **In the PDF** (`report-engine/pdf`, `renderReportPdf`, @react-pdf/renderer 4.9):
+  - **Page:** A4, in the consumer's TTF fonts; spencer passes Geist from the `geist` package, and without fonts the PDF uses Helvetica.
+  - **Charts:** horizontal bars are flex views; upright bars, lines and pie rings are SVG.
+  - **Tables:** a table's header row repeats on every page it runs onto.
+  - **Contents:** the PDF shows the chart and then its table, with a footer carrying the name and "Page N of M".
+  - **react-pdf limits found:**
+    - A line height set on the page throws the page-number text off the page.
+    - A fixed row loses pages next to other fixed rows.
+    - A title stays with what follows only among the page's own children.
+
 ## 9. Spencer integration
 
 **Pages:**
@@ -454,6 +494,19 @@ Execution continues in `after()`, so it survives a closed tab. Small mutations (
   - The daily budget ($5) covers the last 24 hours across the household, because the API key is shared.
   - The run budget carries over what the run spent before an approval.
   - A signed-out request to `/api/...` gets a JSON 401 from the proxy, not the login page.
+
+**As built for the report and the PDF (2026-11-17):**
+- **The run page.**
+  - It shows the report, not how it was computed: no SQL or parameters; they stay in `report_queries`.
+  - The cost, each failed section's problems and a failure's inner details wait in one collapsed "Details" line.
+  - A failure's message, and the ranges with data or the open question, stay visible.
+- **`GET reports/runs/[runId]/pdf`.**
+  1. It reads the run as the signed-in person, under RLS (404 otherwise), and answers 409 unless the run succeeded or is partial.
+  2. It builds the document with `reportPresentation()` (`lib/reports/presentation.ts`) and renders it.
+  3. It answers `application/pdf`, `Content-Disposition: attachment` and `Cache-Control: private, no-store`.
+  4. It needs no secrets: no LLM call and no reporting connection.
+  5. `next.config.ts` ships the two Geist files with it. If they're missing, it logs a warning and draws the PDF in Helvetica.
+- **The download.** The page fetches the file, so the button can show it's working and a failure is a message.
 
 **Proxy:** exempt `/api/cron/reports` from the logged-out redirect to `/login` (`lib/supabase/proxy-session.ts:39-46`). Vercel Cron doesn't follow redirects, so without the exemption the job would silently do nothing. The route authenticates with `CRON_SECRET` and takes no input.
 
@@ -543,6 +596,10 @@ Rough figures per interactive report. The schema prefix is about 4K tokens, roug
 | M4 | PDF renderer and download | Download the PDF |
 | M5 | Saved reports, sharing, daily schedule, the needs-repair flow | Save, share and schedule reports |
 | M6 | Hardening pass, budgets, usage view, package README/LICENSE/SECURITY.md | Prepare for extraction |
+
+**Pulled forward on 2026-11-17:** M3's in-app renderer (formatted values and charts) and M4's PDF download (§8, §9).
+- **Still open in M3:** post-processing (derived values), cross-checks, the compiled fallback, the narrative, and saving the document at stage 9.
+- **Still open in M4:** scheduled runs' stored PDFs.
 
 ## 14. Environment facts and prerequisites
 

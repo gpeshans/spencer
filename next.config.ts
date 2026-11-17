@@ -7,6 +7,11 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["libpg-query"],
   outputFileTracingIncludes: {
     "/api/reports/**": ["./node_modules/libpg-query/wasm/**/*"],
+    // The PDF's typeface, read from disk while rendering.
+    "/api/reports/runs/[runId]/pdf": [
+      "./node_modules/geist/dist/fonts/geist-sans/Geist-Regular.ttf",
+      "./node_modules/geist/dist/fonts/geist-sans/Geist-SemiBold.ttf",
+    ],
   },
 };
 

@@ -1,4 +1,4 @@
-import type { Dimension, Metric, SemanticModel } from '../semantic';
+import type { Dimension, Metric, SemanticModel, Unit } from '../semantic';
 
 /**
  * What a request or a plan may name, taken from the semantic model. The names
@@ -14,6 +14,8 @@ export type ColumnKind = 'text' | 'number' | 'date' | 'timestamp' | 'boolean';
 export interface VocabularyColumn {
   name: string;
   kind: ColumnKind;
+  /** For a number column the model gives a unit, e.g. an amount of money. */
+  unit?: Unit;
 }
 
 export interface RelationVocabulary {
@@ -63,6 +65,9 @@ export function buildVocabulary(model: SemanticModel): Vocabulary {
     return column ? columnKind(column.type) : null;
   };
 
+  // `?? []`: a model file read without parseSemanticModel may predate column units.
+  const units = new Map((model.columnUnits ?? []).map((entry) => [`${entry.relation}.${entry.column}`, entry.unit]));
+
   const relations = model.relations.map((relation): RelationVocabulary => {
     const ownDimensions = model.dimensions.filter((dimension) => dimension.relation === relation.name);
     // The first date-typed dimension dates the rows; any further ones are left out.
@@ -77,9 +82,11 @@ export function buildVocabulary(model: SemanticModel): Vocabulary {
         })
         .map((dimension) => dimension.name),
       time: time ? { dimension: time.name, column: time.column } : null,
-      columns: relation.columns.flatMap((column) => {
+      columns: relation.columns.flatMap((column): VocabularyColumn[] => {
         const kind = columnKind(column.type);
-        return kind ? [{ name: column.name, kind }] : [];
+        if (!kind) return [];
+        const unit = kind === 'number' ? units.get(`${relation.name}.${column.name}`) : undefined;
+        return [unit ? { name: column.name, kind, unit } : { name: column.name, kind }];
       }),
     };
   });

@@ -1,8 +1,18 @@
-import { newRun, type RunState } from 'report-engine';
+import { newRun, type RunState, type SemanticModel } from 'report-engine';
+import { buildVocabulary } from 'report-engine/report';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
+import type { ReportPresentation } from '@/lib/reports/presentation';
+import modelFile from '@/supabase/reporting/semantic-model.json';
+
 import { RunView } from './run-view';
+
+const { relations, metrics, dimensions } = buildVocabulary(modelFile as unknown as SemanticModel);
+const presentation: ReportPresentation = {
+  vocabulary: { relations, metrics, dimensions },
+  styles: { category: { Groceries: { color: '#2f9e44' } } },
+};
 
 const OCTOBER = { from: '2026-10-01', to: '2026-11-01' };
 const later = new Date(Date.now() + 3_600_000).toISOString();
@@ -31,7 +41,15 @@ const base = (fields: Partial<RunState>): RunState => ({
 });
 
 const render = (run: RunState) =>
-  renderToStaticMarkup(<RunView run={run} sending={false} onAnswer={() => {}} onApprove={() => {}} onReject={() => {}} />);
+  renderToStaticMarkup(
+    <RunView run={run} presentation={presentation} sending={false} onAnswer={() => {}} onApprove={() => {}} onReject={() => {}} />,
+  );
+
+/** The part of the page after the collapsed "Details" line, and the part before it. */
+const split = (html: string) => {
+  const at = html.indexOf('>Details</summary>');
+  return at < 0 ? { body: html, details: '' } : { body: html.slice(0, at), details: html.slice(at) };
+};
 
 describe('RunView', () => {
   it('shows where a working run is', () => {
@@ -39,7 +57,8 @@ describe('RunView', () => {
     expect(html).toContain('How much did we spend per category in October?');
     expect(html).toContain('Checking the data');
     expect(html).toContain('Planning the report');
-    expect(html).not.toContain('Writing the SQL');
+    expect(html).not.toContain('Writing the queries');
+    expect(html).not.toMatch(/SQL/);
   });
 
   it('asks the open question with its options', () => {
@@ -78,12 +97,13 @@ describe('RunView', () => {
     expect(html).not.toContain('Approve and run');
   });
 
-  it('shows the rows, the SQL, and why a section failed', () => {
+  it('shows the report in the currency, with a chart and the PDF, and keeps the internals out of sight', () => {
     const html = render(
       base({
         status: 'partial',
         plan,
         unchecked: ['big_days'],
+        costUsd: 0.1234,
         results: [
           {
             section: 'by_category',
@@ -115,11 +135,22 @@ describe('RunView', () => {
         ],
       }),
     );
-    expect(html).toContain('Groceries');
-    expect(html).toMatch(/412[.,]5/);
-    expect(html).toContain('select category_label as category');
-    expect(html).toContain('No SQL was written for this section.');
-    expect(html).toContain('Some sections couldn’t be computed');
+    const { body, details } = split(html);
+    expect(body).toContain('Groceries');
+    expect(body).toMatch(/412,50\s€/);
+    expect(body).toContain('Show the numbers');
+    expect(body).toContain('Download PDF');
+    expect(body).toContain('Some sections couldn’t be computed');
+    expect(body).toContain('couldn’t be computed.');
+    // The SQL stays in the logs; cost and the failure's cause wait in Details.
+    expect(html).not.toContain('select category_label');
+    expect(html).not.toContain('2026-11-01');
+    expect(html).not.toContain('cross-check');
+    expect(body).not.toContain('$0.12');
+    expect(body).not.toContain('No SQL was written');
+    expect(details).toContain('$0.12');
+    expect(details).toContain('Big days couldn’t be computed:');
+    expect(details).toContain('No SQL was written for this section.');
   });
 
   it('explains a failure with its details', () => {
@@ -136,5 +167,25 @@ describe('RunView', () => {
     );
     expect(html).toContain('has no data from 2026-10-01');
     expect(html).toContain('Ask about 2026-03-01 to 2026-08-31');
+  });
+
+  it('keeps the inner workings of a failure in Details', () => {
+    const { body, details } = split(
+      render(
+        base({
+          status: 'failed',
+          costUsd: 0.05,
+          error: { stage: 'planning', code: 'invalid_output', message: "Couldn't make a valid plan.", details: ['sections.0.query: unknown view'] },
+        }),
+      ),
+    );
+    expect(body).toContain('make a valid plan.');
+    expect(body).not.toContain('unknown view');
+    expect(details).toContain('sections.0.query: unknown view');
+    expect(details).toContain('$0.050');
+  });
+
+  it('shows no Details when there is nothing to tell', () => {
+    expect(render(base({ status: 'planning', stage: 'understanding' }))).not.toContain('Details');
   });
 });

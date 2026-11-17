@@ -59,6 +59,10 @@ export function testModel(): SemanticModel {
       { name: 'income_category', description: 'Income category.', relation: 'reporting.monthly_income', column: 'category_label' },
       { name: 'income_month', description: 'Income month.', relation: 'reporting.monthly_income', column: 'month' },
     ],
+    columnUnits: [
+      { relation: 'reporting.spendings', column: 'amount', unit: 'currency' },
+      { relation: 'reporting.monthly_income', column: 'amount', unit: 'currency' },
+    ],
     synonyms: [{ term: 'costs', means: 'the spend metric' }],
     examples: [
       {

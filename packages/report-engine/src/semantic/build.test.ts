@@ -21,13 +21,14 @@ const introspection: Introspection = {
   warnings: [],
 };
 
-const curated: Pick<SemanticModel, 'metrics' | 'dimensions' | 'synonyms' | 'examples' | 'suggestedReports'> = {
+const curated: Pick<SemanticModel, 'metrics' | 'dimensions' | 'columnUnits' | 'synonyms' | 'examples' | 'suggestedReports'> = {
   metrics: [
     { name: 'spend', description: 'Total spent.', relation: 'reporting.spendings', expression: 'sum(amount)', unit: 'currency' },
   ],
   dimensions: [
     { name: 'category', description: 'Spending category.', relation: 'reporting.spendings', column: 'category_label' },
   ],
+  columnUnits: [{ relation: 'reporting.spendings', column: 'amount', unit: 'currency' }],
   synonyms: [{ term: 'expenses', means: 'the spend metric' }],
   examples: [
     {
@@ -92,6 +93,13 @@ describe('buildSemanticModel', () => {
     expect(model.generatedAt).toBe(later.toISOString());
     expect(model.schemaHash).toBe(schemaHash(changed));
     expect(model.metrics).toEqual(curated.metrics);
+    expect(model.columnUnits).toEqual(curated.columnUnits);
+  });
+
+  it('reads a model file written before column units existed', async () => {
+    const { columnUnits, ...older } = { ...(await buildSemanticModel({ introspection, now: NOW })).model, ...curated };
+    expect(columnUnits).toHaveLength(1);
+    expect(parseSemanticModel(JSON.parse(JSON.stringify(older))).columnUnits).toEqual([]);
   });
 
   it('passes introspection warnings through', async () => {
@@ -115,6 +123,13 @@ describe('checkCurated', () => {
       ...model.dimensions,
       { name: 'member', description: 'Who.', relation: 'reporting.spendings', column: 'member_name' },
     ];
+    model.columnUnits = [
+      ...model.columnUnits,
+      { relation: 'reporting.spendings', column: 'amount', unit: 'number' },
+      { relation: 'reporting.gone', column: 'amount', unit: 'currency' },
+      { relation: 'reporting.spendings', column: 'tip', unit: 'currency' },
+      { relation: 'reporting.spendings', column: 'category_label', unit: 'currency' },
+    ];
     model.examples = [...model.examples, { question: 'Secrets', sql: 'select * from vault.decrypted_secrets', params: [] }];
 
     const problems = await checkCurated(model);
@@ -123,6 +138,10 @@ describe('checkCurated', () => {
       'metric gone: reporting.gone is not a readable relation.',
       'metric sleepy: pg_sleep() is not allowed.',
       'dimension member: reporting.spendings has no column member_name.',
+      'column unit reporting.spendings.amount is defined twice.',
+      'column unit reporting.gone.amount: reporting.gone is not a readable relation.',
+      'column unit reporting.spendings.tip: reporting.spendings has no column tip.',
+      'column unit reporting.spendings.category_label: text is not a number type.',
       'example 2 ("Secrets"): vault.decrypted_secrets is not readable.',
     ]);
   });
