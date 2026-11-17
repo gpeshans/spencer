@@ -311,3 +311,12 @@ types/              hand-written DB types + view models
 
 - The PWA is installable (manifest + icons + standalone); there's no offline mode.
 - A Sankey chart is a planned future feature; Recharts (already used) supports it.
+
+## License
+
+Spencer is licensed under the [Apache License 2.0](LICENSE). `packages/report-engine` has its own copy of the license, because it will be published on its own as `querybrief`.
+
+Two parts come from other projects:
+
+- `components/ui/` was generated with [shadcn/ui](https://github.com/shadcn-ui/ui), under the MIT License, copyright (c) 2023 shadcn.
+- `evals/reports/build-report-lite.mjs` is copied unchanged from Anthropic's [claude-api skill](https://github.com/anthropics/skills/tree/main/skills/claude-api), under the Apache License 2.0, copyright 2026 Anthropic, PBC.

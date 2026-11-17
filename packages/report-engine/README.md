@@ -116,3 +116,7 @@ This is the working copy inside spencer. It is meant to be published as `querybr
     - Figures, charts and tables come from the same document as the app's page.
     - Every page carries a footer with page numbers.
   - **Nothing is fetched while rendering:** no images, no remote fonts, no links.
+
+## License
+
+Apache License 2.0; see [LICENSE](LICENSE).

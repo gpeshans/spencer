@@ -649,7 +649,7 @@ Rough figures per interactive report. The schema prefix is about 4K tokens, roug
 | M5 | Saved reports, sharing, daily schedule, the needs-repair flow | Save, share and schedule reports |
 | M6 | Hardening pass, budgets, usage view, package README/LICENSE/SECURITY.md | Prepare for extraction |
 
-**Pulled forward on 2026-11-17:** M3's in-app renderer (formatted values and charts) and M4's PDF download (§8, §9).
+**Pulled forward on 2026-11-17:** M3's in-app renderer (formatted values and charts), M4's PDF download (§8, §9), and M6's LICENSE (Apache-2.0, at the repo root and in the package).
 - **M3 built on 2026-11-17:** the compiler with the compiled cross-check and fallback, derived values and cross-checks, the narrative, and document v2. Saving the document moved to M5.
 - **Still open in M4:** scheduled runs' stored PDFs.
 
