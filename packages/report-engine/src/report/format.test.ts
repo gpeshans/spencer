@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatValue, isNumeric, reportFileName, toNumber } from './format';
+import { formatNarrative, formatPeriod, formatValue, isNumeric, reportFileName, toNumber } from './format';
 
 const DE = { locale: 'de-DE', currency: 'EUR' };
 const money = { kind: 'money' } as const;
@@ -82,5 +82,19 @@ describe('helpers', () => {
     expect(reportFileName('Расходы', '2026-11-17')).toBe('report-2026-11-17.pdf');
     expect(reportFileName('"quoted"\r\nheader', 'not a day')).toBe('quoted-header.pdf');
     expect(reportFileName('x'.repeat(100), '2026-11-17')).toBe(`${'x'.repeat(60)}-2026-11-17.pdf`);
+  });
+});
+
+describe('formatPeriod and formatNarrative', () => {
+  it('shows a period as its days, in the locale', () => {
+    expect(formatPeriod({ first: '2026-10-01', last: '2026-10-31' }, { locale: 'en-GB' })).toBe('1–31 Oct 2026');
+    // Intl sets the dash between thin spaces.
+    expect(formatPeriod({ first: '2026-12-15', last: '2027-01-14' }, { locale: 'en-GB' }).replace(/\s/g, ' ')).toBe('15 Dec 2026 – 14 Jan 2027');
+    expect(formatPeriod({ first: '2026-10-05', last: '2026-10-05' }, { locale: 'de-DE' })).toBe('5. Okt. 2026');
+  });
+
+  it("puts the narrative's values in, formatted", () => {
+    const text = ['You spent ', { value: 2329.22, format: { kind: 'money' as const } }, ', ', { value: 22.17, format: { kind: 'percent' as const } }, ' on groceries.'];
+    expect(formatNarrative(text, { locale: 'en-US', currency: 'EUR' })).toBe('You spent €2,329.22, 22.2% on groceries.');
   });
 });

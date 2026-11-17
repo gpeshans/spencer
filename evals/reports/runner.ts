@@ -92,6 +92,10 @@ export interface EvalRow {
   fallback: 0 | 1;
   asked_approval: 0 | 1;
   asked_clarification: 0 | 1;
+  /** Sections shown from the compiled SQL: its rows differed from the LLM's, or the LLM's SQL failed. */
+  compiled_used: number;
+  /** Whether the report got a narrative. */
+  narrated: 0 | 1;
   /** as_of: the day the case's periods and expected values were worked out for. */
   meta: { as_of: string; run_status: string; error: string | null; approval_reasons: string[] };
 }
@@ -126,6 +130,8 @@ export const STATE = {
     { id: 'repairs', label: 'Repairs' },
     { id: 'fallback', label: 'Fallback' },
     { id: 'asked_approval', label: 'Approval' },
+    { id: 'compiled_used', label: 'Compiled rows' },
+    { id: 'narrated', label: 'Narrative' },
   ],
 } as const;
 
@@ -235,7 +241,7 @@ export async function runEval(options: EvalOptions): Promise<EvalSummary> {
           state = approvePlan(state, state.planHash!, now());
         }
         if (state.status === 'executing') {
-          state = await executeRun(state, { ...shared, model, guard, query, signal: deadline });
+          state = await executeRun(state, { ...shared, model, guard, query, shareValues: reportsConfig.shareValues, signal: deadline });
         }
         return state;
       })();
@@ -249,10 +255,18 @@ export async function runEval(options: EvalOptions): Promise<EvalSummary> {
       ]);
 
       for (const result of state.results ?? []) {
+        const check = result.check ? ` (${result.source ?? 'llm'} rows, check: ${result.check}${result.mismatch ? `: ${result.mismatch}` : ''})` : '';
         turns.push(
           { role: 'tool_call', name: `sql ${result.section}`, content: `${result.sql ?? '(none)'}\n-- params: ${JSON.stringify(result.params)}` },
-          { role: 'tool_result', name: `sql ${result.section}`, content: result.status === 'ok' ? JSON.stringify(result.rows.slice(0, 20), null, 2) : `failed: ${result.problems.join(' ')}` },
+          {
+            role: 'tool_result',
+            name: `sql ${result.section}`,
+            content: result.status === 'ok' ? `${JSON.stringify(result.rows.slice(0, 20), null, 2)}${check}` : `failed: ${result.problems.join(' ')}`,
+          },
         );
+      }
+      if (state.derived?.length || state.checks?.length) {
+        turns.push({ role: 'tool_result', name: 'derived and checks', content: JSON.stringify({ derived: state.derived, checks: state.checks }, null, 2) });
       }
       const graded = gradeRun(evalCase, state);
       turns.push({ role: 'assistant', name: 'outcome', content: `${state.status}${state.error ? `: ${state.error.code}: ${state.error.message}` : ''}\n${JSON.stringify(graded, null, 2)}` });
@@ -284,6 +298,8 @@ export async function runEval(options: EvalOptions): Promise<EvalSummary> {
         fallback: calls.some((call) => call.fallbackReason !== null) ? 1 : 0,
         asked_approval: turns.some((turn) => turn.name === 'approval') ? 1 : 0,
         asked_clarification: turns.some((turn) => turn.name === 'question') || state.status === 'needs_clarification' ? 1 : 0,
+        compiled_used: (state.results ?? []).filter((result) => result.source === 'compiled').length,
+        narrated: state.narrative ? 1 : 0,
         meta: { as_of: fixture.today, run_status: state.status, error: state.error?.message ?? null, approval_reasons: state.approval?.reasons ?? [] },
       };
       return { row, turns };
@@ -404,9 +420,10 @@ export function casesMarkdown(cases: readonly EvalCase[], today: string): string
     if (evalCase.answers?.length) lines.push('', `If it asks, the answer is: ${evalCase.answers.map((answer) => `"${answer}"`).join(', then ')}.`);
     for (const fact of evalCase.facts) {
       lines.push('', `- ${fact.label}:`);
-      if (fact.kind === 'scalar') lines.push(`  ${money(fact.value)}`);
-      if (fact.kind === 'map') lines.push(...Object.entries(fact.entries).map(([key, value]) => `  - ${key.replace('|', ' / ')}: ${money(value)}`));
-      if (fact.kind === 'series') lines.push(...Object.entries(fact.points).map(([month, value]) => `  - ${month}: ${money(value)}`));
+      const shown = (value: number) => (fact.kind !== 'rows' && fact.percent ? `${value.toFixed(2)} % (±${fact.tolerance ?? 0.01})` : money(value));
+      if (fact.kind === 'scalar') lines.push(`  ${shown(fact.value)}`);
+      if (fact.kind === 'map') lines.push(...Object.entries(fact.entries).map(([key, value]) => `  - ${key.replace('|', ' / ')}: ${shown(value)}`));
+      if (fact.kind === 'series') lines.push(...Object.entries(fact.points).map(([month, value]) => `  - ${month}: ${shown(value)}`));
       if (fact.kind === 'rows') {
         lines.push(`  ${fact.ordered ? 'in this order' : 'in any order, and no others'}:`);
         lines.push(...fact.rows.map((row) => `  - ${money(row.amount)}${row.date ? ` on ${row.date}` : ''}${row.text ? ` ("${row.text.length > 40 ? `${row.text.slice(0, 40)}…` : row.text}")` : ''}`));

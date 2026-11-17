@@ -121,6 +121,8 @@ async function drive(initial: RunState, owner: Owner, emit: (state: RunState) =>
         guard: engine.guard,
         query: run,
         recordQuery: (attempt) => recordQuery(initial.id, attempt),
+        // The narrative sees the computed figures, as planning sees the household's values.
+        shareValues: reportsConfig.shareValues,
         signal: deadline,
       });
     }

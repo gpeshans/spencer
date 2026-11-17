@@ -71,8 +71,8 @@ const keyOf = (value: unknown) => (value === null || value === undefined ? '' : 
 
 const sameFormat = (a: ValueFormat, b: ValueFormat) => a.kind === b.kind;
 
-/** A sum or count adds up across a split, so its bars can stack. An average can't. */
-function additive(metric: string | null, metrics: ReportVocabulary['metrics']): boolean {
+/** A sum or count adds up across a split, so its bars can stack and its parts make its total. An average can't. */
+export function additive(metric: string | null, metrics: ReportVocabulary['metrics']): boolean {
   const expression = metrics.find((candidate) => candidate.name === metric)?.expression;
   return expression !== undefined && /^\s*(sum|count)\s*\(/i.test(expression);
 }

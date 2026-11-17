@@ -82,7 +82,8 @@ describe('the eval set', () => {
         const values =
           fact.kind === 'scalar' ? [fact.value] : fact.kind === 'rows' ? fact.rows.map((row) => row.amount) : Object.values(fact.kind === 'map' ? fact.entries : fact.points);
         expect(values.length, `${evalCase.id}: ${fact.label}`).toBeGreaterThan(0);
-        expect(values.every((value) => value > 0), `${evalCase.id}: ${fact.label}`).toBe(true);
+        // A change may be negative; nothing expected is zero, or nothing would tell it from a missing value.
+        expect(values.every((value) => Number.isFinite(value) && value !== 0), `${evalCase.id}: ${fact.label}`).toBe(true);
       }
     }
   });
@@ -149,6 +150,34 @@ describe('gradeRun', () => {
     const trend = byId('trend-six-months');
     const points = Object.entries((trend.facts[0] as Extract<Fact, { kind: 'series' }>).points).map(([month, value]) => ({ month: `${month}-01`, value }));
     expect(gradeRun(trend, run({ status: 'succeeded', results: [section('s', [...points, { month: '2026-11-01', value: 100 }])] })).grade.correct).toBe(0);
+  });
+
+  it('takes a percentage rounded to a tenth, or as a fraction, but no further off', () => {
+    const share = byId('groceries-share-last-month');
+    const value = (share.facts[0] as Extract<Fact, { kind: 'scalar' }>).value;
+    const grade = (number: number) => gradeRun(share, run({ status: 'succeeded', results: [section('s', [{ share: number }])] })).grade.correct;
+    expect(grade(Math.round(value * 10) / 10)).toBe(1);
+    expect(grade(value / 100)).toBe(1);
+    expect(grade(value + 0.2)).toBe(0);
+    expect(grade(value / 100 + 0.002)).toBe(0);
+  });
+
+  it('reads derived values with the keys of their section', () => {
+    const left = byId('left-over-by-month');
+    const points = Object.entries((left.facts[0] as Extract<Fact, { kind: 'series' }>).points);
+    const derived = [
+      {
+        id: 'left',
+        kind: 'difference' as const,
+        label: 'Left over',
+        section: 'income',
+        format: { kind: 'money' as const },
+        rows: points.map(([month, value]) => ({ key: { income_month: `${month}-01` }, value })),
+        skipped: null,
+      },
+    ];
+    expect(gradeRun(left, run({ status: 'succeeded', results: [], derived })).grade.correct).toBe(1);
+    expect(gradeRun(left, run({ status: 'succeeded', results: [], derived: [{ ...derived[0]!, skipped: 'section income failed' }] })).grade.correct).toBe(0);
   });
 
   it('needs every fact of a case with two', () => {

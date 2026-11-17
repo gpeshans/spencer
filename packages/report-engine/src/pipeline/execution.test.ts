@@ -43,13 +43,16 @@ const TOTAL = section('total', {
   query: { ...section('x').query!, dimensions: [] } as PlanSection['query'],
 });
 const BY_CATEGORY = section('by_category');
+/** A section the structured shapes can't describe: nothing compiles for it. */
+const FREEFORM = section('freeform', { display: 'table', query: null, purpose: 'The largest expense per member.' });
 
-const plan = (sections: PlanSection[] = [TOTAL, BY_CATEGORY]): ReportPlan => ({
+const plan = (sections: PlanSection[] = [TOTAL, BY_CATEGORY], extra: Partial<ReportPlan> = {}): ReportPlan => ({
   title: 'October',
   summary: 'October spending.',
   sections,
   derived: [],
   crossChecks: [],
+  ...extra,
 });
 
 const totalSql: SectionSql = {
@@ -69,7 +72,19 @@ const byCategorySql: SectionSql = {
     { name: 'spend', type: 'number' },
   ],
 };
+const freeformSql: SectionSql = {
+  section: 'freeform',
+  sql: 'select member_name as member, max(amount) as largest from reporting.spendings group by member_name',
+  params: [],
+  summary: 'The largest expense per member.',
+  columns: [
+    { name: 'member', type: 'text' },
+    { name: 'largest', type: 'number' },
+  ],
+};
 const answer = (...sections: SectionSql[]): ScriptedAnswer => ({ output: { sections } });
+/** Runs here have no intent, so no period: v1 is the total. */
+const NARRATIVE: ScriptedAnswer = { output: { headline: 'You spent {v1} in October.', insights: [] } };
 
 type Reply = { columns: QueryColumn[]; rows: Record<string, unknown>[] } | { error: string };
 const COLUMNS: Record<string, QueryColumn[]> = {
@@ -78,9 +93,24 @@ const COLUMNS: Record<string, QueryColumn[]> = {
     { name: 'category', type: 'text' },
     { name: 'spend', type: 'number' },
   ],
+  freeform: [
+    { name: 'member', type: 'text' },
+    { name: 'largest', type: 'number' },
+  ],
+};
+const ROWS: Record<string, Record<string, unknown>[]> = {
+  total: [{ spend: 42 }],
+  by_category: [
+    { category: 'Groceries', spend: 30 },
+    { category: 'Dining', spend: 12 },
+  ],
+  freeform: [{ member: 'Alex', largest: 20 }],
 };
 
-/** Stands in for the executor; each run takes the next entry, by query id. */
+/**
+ * Stands in for the executor; each run takes the next entry, by query id.
+ * A compiled query (`compiled:<section>`) gets the section's usual reply.
+ */
 function database(runs: Array<Record<string, Reply> | 'down'> = []) {
   const ran: string[][] = [];
   const query = async (queries: readonly ReportQuery[]): Promise<RunOutcome> => {
@@ -88,7 +118,8 @@ function database(runs: Array<Record<string, Reply> | 'down'> = []) {
     const script = runs.shift() ?? {};
     if (script === 'down') return { ok: false, error: { code: 'connection', message: 'Could not run the report.' }, queries: [], durationMs: 1 };
     const outcomes = queries.map((entry): QueryOutcome => {
-      const reply = script[entry.id] ?? { columns: COLUMNS[entry.id] ?? [], rows: [{ spend: 42 }] };
+      const id = entry.id.replace(/^compiled:/, '');
+      const reply = script[entry.id] ?? { columns: COLUMNS[id] ?? [], rows: ROWS[id] ?? [] };
       if ('error' in reply) {
         return { id: entry.id, ok: false, error: { code: 'undefined_column', message: reply.error }, durationMs: 3 };
       }
@@ -115,56 +146,71 @@ function setup(answers: ScriptedAnswer[], runs: Array<Record<string, Reply> | 'd
     now: () => new Date('2026-11-16T10:00:00Z'),
     save: async (state) => void saved.push(state),
     recordQuery: async (attempt) => void attempts.push(attempt),
+    shareValues: true,
     ...overrides,
   };
   return { deps, requests, saved, attempts, ran: db.ran };
 }
 
-const ready = (sections?: PlanSection[]): RunState => ({
+const ready = (sections?: PlanSection[], extra: Partial<ReportPlan> = {}): RunState => ({
   ...newRun('run-1', 'October spending by category'),
   status: 'executing',
-  plan: plan(sections),
+  plan: plan(sections, extra),
   planHash: 'a'.repeat(64),
 });
 
+const llmAttempts = (attempts: QueryAttempt[]) => attempts.filter((attempt) => attempt.source === 'llm');
+const resultOf = (state: RunState, id: string) => state.results?.find((result) => result.section === id);
+/** The same reply for every round a run takes. */
+const everyRound = (reply: Record<string, Reply>) => [reply, reply, reply];
+
 describe('executeRun', () => {
-  it('writes, checks and runs the SQL, and keeps every section result', async () => {
-    const { deps, requests, saved, attempts, ran } = setup([answer(totalSql, byCategorySql)]);
+  it('writes, checks and runs the SQL beside the compiled SQL, and keeps every section result', async () => {
+    const { deps, requests, saved, attempts, ran } = setup([answer(totalSql, byCategorySql), NARRATIVE]);
     const state = await executeRun(ready(), deps);
 
-    expect(state).toMatchObject({ status: 'succeeded', stage: null, error: null, costUsd: 0.01 });
+    expect(state).toMatchObject({ status: 'succeeded', stage: null, error: null, costUsd: 0.02 });
     expect(state.results).toEqual([
-      expect.objectContaining({ section: 'total', status: 'ok', sql: totalSql.sql, rows: [{ spend: 42 }], attempts: 1, problems: [] }),
-      expect.objectContaining({ section: 'by_category', status: 'ok', columns: COLUMNS.by_category, attempts: 1 }),
+      expect.objectContaining({ section: 'total', status: 'ok', sql: totalSql.sql, rows: [{ spend: 42 }], attempts: 1, problems: [], source: 'llm', check: 'match' }),
+      expect.objectContaining({ section: 'by_category', status: 'ok', columns: COLUMNS.by_category, attempts: 1, source: 'llm', check: 'match' }),
     ]);
     expect(saved.map((entry) => [entry.status, entry.stage])).toEqual([
       ['executing', 'writing_sql'],
       ['executing', 'validating'],
       ['executing', 'executing'],
+      ['executing', 'verifying'],
+      ['executing', 'narrating'],
       ['succeeded', null],
     ]);
-    expect(Object.keys(state.stageTimings).sort()).toEqual(['executing', 'validating', 'writing_sql']);
-    expect(ran).toEqual([['total', 'by_category']]);
-    expect(requests.map((request) => [request.stage, request.effort])).toEqual([['sql', 'high']]);
-    expect(attempts.map((attempt) => [attempt.section, attempt.attempt, attempt.verdict, attempt.rows, attempt.cost])).toEqual([
-      ['total', 1, 'ok', 1, 12],
-      ['by_category', 1, 'ok', 1, 12],
+    expect(Object.keys(state.stageTimings).sort()).toEqual(['executing', 'narrating', 'validating', 'verifying', 'writing_sql']);
+    expect(ran).toEqual([['total', 'by_category', 'compiled:total', 'compiled:by_category']]);
+    expect(requests.map((request) => [request.stage, request.effort])).toEqual([
+      ['sql', 'high'],
+      ['narrative', 'medium'],
+    ]);
+    expect(attempts.map((attempt) => [attempt.section, attempt.source, attempt.attempt, attempt.verdict, attempt.rows, attempt.cost, attempt.crossCheck])).toEqual([
+      ['total', 'llm', 1, 'ok', 1, 12, { check: 'match', detail: null }],
+      ['total', 'compiled', 1, 'ok', 1, 12, { check: 'match', detail: null }],
+      ['by_category', 'llm', 1, 'ok', 2, 12, { check: 'match', detail: null }],
+      ['by_category', 'compiled', 1, 'ok', 2, 12, { check: 'match', detail: null }],
     ]);
     expect(attempts[0]!.fingerprint).toMatch(/^[0-9a-f]{32}$/);
+    expect(attempts[1]!.sql).toBe('select sum(amount) as "spend" from "reporting"."spendings" where "spent_on" >= $1::date and "spent_on" < $2::date');
+    expect(state.narrative).toEqual({ headline: ['You spent ', { value: 42, format: { kind: 'money' } }, ' in October.'], insights: [] });
   });
 
   it('repairs a query that fails its checks, without running anything first', async () => {
     const misnamed = { ...byCategorySql, columns: [{ name: 'category_label', type: 'text' as const }, { name: 'spend', type: 'number' as const }] };
-    const { deps, requests, attempts, ran } = setup([answer(totalSql, misnamed), answer(byCategorySql)]);
+    const { deps, requests, attempts, ran } = setup([answer(totalSql, misnamed), answer(byCategorySql), NARRATIVE]);
     const state = await executeRun(ready(), deps);
 
     expect(state.status).toBe('succeeded');
-    expect(ran).toEqual([['total', 'by_category']]);
-    expect(requests.map((request) => request.stage)).toEqual(['sql', 'sql_repair']);
+    expect(ran).toEqual([['total', 'by_category', 'compiled:total', 'compiled:by_category']]);
+    expect(requests.map((request) => request.stage)).toEqual(['sql', 'sql_repair', 'narrative']);
     expect(requests[1]!.input).toContain('Only these: by_category.');
     expect(requests[1]!.input).toContain('missing category; not expected category_label');
-    expect(state.results?.find((result) => result.section === 'by_category')?.attempts).toBe(2);
-    expect(attempts.map((attempt) => [attempt.section, attempt.attempt, attempt.verdict])).toEqual([
+    expect(resultOf(state, 'by_category')?.attempts).toBe(2);
+    expect(llmAttempts(attempts).map((attempt) => [attempt.section, attempt.attempt, attempt.verdict])).toEqual([
       ['by_category', 1, 'rejected'],
       ['total', 1, 'ok'],
       ['by_category', 2, 'ok'],
@@ -173,43 +219,101 @@ describe('executeRun', () => {
 
   it('repairs a query that fails when it runs, then runs every section again together', async () => {
     const { deps, requests, attempts, ran } = setup(
-      [answer(totalSql, byCategorySql), answer(byCategorySql)],
+      [answer(totalSql, byCategorySql), answer(byCategorySql), NARRATIVE],
       [{ by_category: { error: 'column "categry" does not exist' } }],
     );
     const state = await executeRun(ready(), deps);
 
     expect(state.status).toBe('succeeded');
     expect(ran).toEqual([
-      ['total', 'by_category'],
-      ['total', 'by_category'],
+      ['total', 'by_category', 'compiled:total', 'compiled:by_category'],
+      ['total', 'by_category', 'compiled:total', 'compiled:by_category'],
     ]);
     expect(requests[1]!.input).toContain('- undefined_column: column "categry" does not exist');
-    expect(attempts.map((attempt) => [attempt.section, attempt.attempt, attempt.verdict])).toEqual([
+    expect(llmAttempts(attempts).map((attempt) => [attempt.section, attempt.attempt, attempt.verdict])).toEqual([
       ['by_category', 1, 'failed'],
       ['total', 1, 'ok'],
       ['by_category', 2, 'ok'],
     ]);
   });
 
-  it('marks a section failed after two repairs; the run is partial when it is not essential', async () => {
+  it('falls back to the compiled SQL when the repairs run out', async () => {
     const inlined = { ...byCategorySql, sql: byCategorySql.sql.replace('$1::date', "'2026-10-01'::date").replace('$2', '$1'), params: [OCTOBER.to] };
-    const optional = { ...BY_CATEGORY, essential: false };
-    const { deps, requests } = setup([answer(totalSql, inlined), answer(inlined), answer(inlined)]);
-    const state = await executeRun(ready([TOTAL, optional]), deps);
+    const { deps, requests, attempts } = setup([answer(totalSql, inlined), answer(inlined), answer(inlined), NARRATIVE]);
+    const state = await executeRun(ready(), deps);
 
-    expect(requests.map((request) => request.stage)).toEqual(['sql', 'sql_repair', 'sql_repair']);
-    expect(state.status).toBe('partial');
-    expect(state.results?.find((result) => result.section === 'by_category')).toMatchObject({
-      status: 'failed',
+    expect(requests.map((request) => request.stage)).toEqual(['sql', 'sql_repair', 'sql_repair', 'narrative']);
+    expect(state.status).toBe('succeeded');
+    expect(resultOf(state, 'by_category')).toMatchObject({
+      status: 'ok',
+      source: 'compiled',
+      check: 'fallback',
       attempts: 3,
-      rows: [],
-      problems: ["'2026-10-01' is written into the SQL; pass it as a $n parameter."],
+      rows: ROWS.by_category,
+      problems: [],
+      summary: 'Spend by category, from 2026-10-01 to 2026-10-31.',
     });
-    expect(state.results?.find((result) => result.section === 'total')?.status).toBe('ok');
+    expect(resultOf(state, 'by_category')!.sql).toContain('"category_label" as "category"');
+    expect(attempts.filter((attempt) => attempt.section === 'by_category').map((attempt) => [attempt.source, attempt.verdict])).toEqual([
+      ['llm', 'rejected'],
+      ['llm', 'rejected'],
+      ['llm', 'rejected'],
+      ['compiled', 'ok'],
+    ]);
   });
 
-  it('fails the run when an essential section fails', async () => {
-    const { deps } = setup([answer(totalSql), answer(), answer()]);
+  it('shows the compiled rows when the two results differ, and logs what differed', async () => {
+    const { deps, attempts } = setup(
+      [answer(totalSql, byCategorySql), NARRATIVE],
+      [{ by_category: { columns: COLUMNS.by_category!, rows: [{ category: 'Groceries', spend: 30 }, { category: 'Dining', spend: 99 }] } }],
+    );
+    const state = await executeRun(ready(), deps);
+
+    expect(state.status).toBe('succeeded');
+    expect(resultOf(state, 'by_category')).toMatchObject({
+      status: 'ok',
+      source: 'compiled',
+      check: 'mismatch',
+      mismatch: 'category Dining: spend 99, against 12',
+      rows: ROWS.by_category,
+    });
+    const logged = { check: 'mismatch', detail: 'category Dining: spend 99, against 12' };
+    expect(attempts.filter((attempt) => attempt.section === 'by_category').map((attempt) => [attempt.source, attempt.crossCheck])).toEqual([
+      ['llm', logged],
+      ['compiled', logged],
+    ]);
+  });
+
+  it("keeps the LLM's rows, unchecked, when the compiled query fails or nothing compiles", async () => {
+    const { deps, attempts } = setup(
+      [answer(totalSql, byCategorySql, freeformSql), NARRATIVE],
+      [{ 'compiled:by_category': { error: 'statement timeout' } }],
+    );
+    const state = await executeRun(ready([TOTAL, BY_CATEGORY, FREEFORM]), deps);
+
+    expect(state.status).toBe('succeeded');
+    expect(resultOf(state, 'by_category')).toMatchObject({ status: 'ok', source: 'llm', check: 'unavailable', rows: ROWS.by_category });
+    expect(resultOf(state, 'freeform')).toMatchObject({ status: 'ok', source: 'llm', check: 'none' });
+    expect(attempts.find((attempt) => attempt.section === 'by_category' && attempt.source === 'compiled')).toMatchObject({
+      verdict: 'failed',
+      problems: ['undefined_column: statement timeout'],
+    });
+    expect(attempts.some((attempt) => attempt.section === 'freeform' && attempt.source === 'compiled')).toBe(false);
+  });
+
+  it('marks a section failed when its repairs run out and nothing compiles; the run is partial when it is not essential', async () => {
+    const optional = { ...FREEFORM, essential: false };
+    const { deps, requests } = setup([answer(totalSql, freeformSql), answer(freeformSql), answer(freeformSql), NARRATIVE], everyRound({ freeform: { error: 'boom' } }));
+    const state = await executeRun(ready([TOTAL, optional]), deps);
+
+    expect(requests.map((request) => request.stage)).toEqual(['sql', 'sql_repair', 'sql_repair', 'narrative']);
+    expect(state.status).toBe('partial');
+    expect(resultOf(state, 'freeform')).toMatchObject({ status: 'failed', attempts: 3, rows: [], problems: ['undefined_column: boom'], check: 'none' });
+    expect(resultOf(state, 'total')?.status).toBe('ok');
+  });
+
+  it('fails the run when an essential section fails, the compiled SQL too', async () => {
+    const { deps, requests } = setup([answer(totalSql), answer(), answer()], everyRound({ 'compiled:by_category': { error: 'boom' } }));
     const state = await executeRun(ready(), deps);
 
     expect(state).toMatchObject({
@@ -220,18 +324,56 @@ describe('executeRun', () => {
         message: '1 of 2 sections failed, including an essential one.',
         details: ['by_category: No SQL was written for this section.'],
       },
+      narrative: null,
     });
     expect(state.results).toHaveLength(2);
+    expect(requests.map((request) => request.stage)).toEqual(['sql', 'sql_repair', 'sql_repair']);
   });
 
-  it('keeps going without the repair when the repair call fails', async () => {
-    const optional = { ...BY_CATEGORY, essential: false };
-    const { deps, requests } = setup([answer(totalSql), { fails: 'unavailable' }]);
-    const state = await executeRun(ready([TOTAL, optional]), deps);
+  it('keeps going without the repair when the repair call fails, on the compiled SQL', async () => {
+    const { deps, requests } = setup([answer(totalSql), { fails: 'unavailable' }, NARRATIVE]);
+    const state = await executeRun(ready(), deps);
 
-    expect(requests).toHaveLength(2);
-    expect(state.status).toBe('partial');
-    expect(state.costUsd).toBe(0.02);
+    expect(requests.map((request) => request.stage)).toEqual(['sql', 'sql_repair', 'narrative']);
+    expect(state.status).toBe('succeeded');
+    expect(resultOf(state, 'by_category')).toMatchObject({ source: 'compiled', check: 'fallback' });
+    expect(state.costUsd).toBe(0.03);
+  });
+
+  it('computes the derived values and cross-checks, and gives the narrative their figures', async () => {
+    const extra: Partial<ReportPlan> = {
+      derived: [{ id: 'share', kind: 'share_of_total', label: 'Share of spending', section: 'by_category', metric: 'spend', against: null }],
+      crossChecks: [{ kind: 'sums_to', parts: 'by_category', total: 'total', metric: 'spend' }],
+    };
+    const { deps, requests } = setup([answer(totalSql, byCategorySql), { output: { headline: 'Groceries took {v4}.', insights: [] } }]);
+    const state = await executeRun(ready(undefined, extra), deps);
+
+    expect(state.derived).toEqual([
+      expect.objectContaining({
+        id: 'share',
+        rows: [
+          { key: { category: 'Groceries' }, value: (30 / 42) * 100 },
+          { key: { category: 'Dining' }, value: (12 / 42) * 100 },
+        ],
+        skipped: null,
+      }),
+    ]);
+    expect(state.checks).toEqual([expect.objectContaining({ verdict: 'pass' })]);
+    expect(requests[1]!.input).toContain(`v4 = ${(30 / 42) * 100} (percent): Share of spending · Groceries`);
+    expect(state.narrative?.headline).toEqual(['Groceries took ', { value: (30 / 42) * 100, format: { kind: 'percent' } }, '.']);
+  });
+
+  it("finishes without a narrative when the narrative can't be written", async () => {
+    const { deps } = setup([answer(totalSql, byCategorySql), { fails: 'budget_exceeded' }]);
+    const state = await executeRun(ready(), deps);
+    expect(state).toMatchObject({ status: 'succeeded', narrative: null, error: null });
+  });
+
+  it("doesn't show the narrative's LLM the values unless they are shared", async () => {
+    const { deps, requests } = setup([answer(totalSql, byCategorySql), NARRATIVE], [], { shareValues: false });
+    await executeRun(ready(), deps);
+    expect(requests[1]!.input).toContain('v1 (amount): total · Spend');
+    expect(requests[1]!.input).not.toContain('Groceries');
   });
 
   it('fails when the first SQL call fails or the database is down', async () => {
@@ -250,7 +392,7 @@ describe('executeRun', () => {
   it('finishes a text-only plan without writing SQL', async () => {
     const { deps, requests } = setup([]);
     const state = await executeRun(ready([section('note', { display: 'text', query: null })]), deps);
-    expect(state).toMatchObject({ status: 'succeeded', results: [] });
+    expect(state).toMatchObject({ status: 'succeeded', results: [], derived: [], checks: [], narrative: null });
     expect(requests).toHaveLength(0);
   });
 

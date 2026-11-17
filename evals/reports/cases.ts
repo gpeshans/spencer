@@ -16,20 +16,28 @@ import {
  * its answer comes from the fixture's own data.
  */
 
+/** How close a number must be. Money is exact to the cent; a percentage may be rounded. */
+export interface Precision {
+  /** Allowed difference; 0.01 by default. */
+  tolerance?: number;
+  /** A percentage: 22.17 also matches as the fraction 0.2217. */
+  percent?: boolean;
+}
+
 /** A number some cell of the report holds. */
-export interface ScalarFact {
+export interface ScalarFact extends Precision {
   kind: 'scalar';
   label: string;
   value: number;
 }
 /** Rows keyed by names (`a|b` for two), each with its number; other rows may only hold 0. */
-export interface MapFact {
+export interface MapFact extends Precision {
   kind: 'map';
   label: string;
   entries: Record<string, number>;
 }
 /** Rows keyed by month (YYYY-MM), each with its number; other months may only hold 0. */
-export interface SeriesFact {
+export interface SeriesFact extends Precision {
   kind: 'series';
   label: string;
   points: Record<string, number>;
@@ -74,6 +82,10 @@ export function buildCases(fixture: Fixture): EvalCase[] {
   const busiest = Object.entries(totalsBy(last, (expense) => expense.date)).sort((a, b) => b[1] - a[1])[0]!;
   const yearAgo = fixture.expenses.filter((expense) => expense.date >= fixture.monthStart(-11));
   const groceriesMonth = fixture.monthStart(-2);
+  const lastTotal = spend(last);
+  const before = spend(inMonth(fixture, -2));
+  /** A percentage, rounded to a tenth of a point at most. */
+  const ROUNDED = { percent: true, tolerance: 0.05 } as const;
 
   return [
     // Single figures.
@@ -258,7 +270,57 @@ export function buildCases(fixture: Fixture): EvalCase[] {
       question: 'How much more did we earn than we spent last month?',
       expect: 'answer',
       facts: [{ kind: 'scalar', label: 'income minus spending', value: incomeIn(fixture, -1) - spend(last) }],
-      note: 'Needs a difference across two views: derived values arrive in M3, so this may fail until then.',
+      note: 'A difference across two views: a derived value since M3.',
+    },
+
+    // Derived values (M3): shares, changes and differences computed in code.
+    {
+      id: 'groceries-share-last-month',
+      tags: ['derived', 'share'],
+      question: "What share of last month's spending went to Groceries?",
+      expect: 'answer',
+      facts: [{ kind: 'scalar', label: 'groceries share of spending', value: (spend(last.filter(ofCategory('groceries'))) / lastTotal) * 100, ...ROUNDED }],
+    },
+    {
+      id: 'category-shares-last-month',
+      tags: ['derived', 'share'],
+      question: "What share of last month's spending did each category take?",
+      expect: 'answer',
+      facts: [
+        {
+          kind: 'map',
+          label: 'share per category',
+          entries: Object.fromEntries(Object.entries(totalsBy(last, label)).map(([name, value]) => [name, (value / lastTotal) * 100])),
+          ...ROUNDED,
+        },
+      ],
+    },
+    {
+      id: 'spend-change-last-month',
+      tags: ['derived', 'change'],
+      question: 'By what percent did our total spending change from the month before last to last month?',
+      expect: 'answer',
+      facts: [{ kind: 'scalar', label: 'change in spending', value: ((lastTotal - before) / before) * 100, ...ROUNDED }],
+    },
+    {
+      id: 'spend-share-of-income',
+      tags: ['derived', 'ratio', 'two views'],
+      question: "What share of last month's income did we spend?",
+      expect: 'answer',
+      facts: [{ kind: 'scalar', label: 'spending as a share of income', value: (lastTotal / incomeIn(fixture, -1)) * 100, ...ROUNDED }],
+    },
+    {
+      id: 'left-over-by-month',
+      tags: ['derived', 'two views'],
+      question: 'For each of the last three full months, how much of our income was left after spending?',
+      expect: 'answer',
+      facts: [
+        {
+          kind: 'series',
+          label: 'income minus spending per month',
+          points: series(months(-3, -1), (offset) => incomeIn(fixture, offset) - spend(inMonth(fixture, offset))),
+        },
+      ],
     },
 
     // A question that may come back with a question.

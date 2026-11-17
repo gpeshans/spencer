@@ -1,5 +1,5 @@
 /**
- * The report eval (evals/reports/README.md): 26 questions with known answers,
+ * The report eval (evals/reports/README.md): 31 questions with known answers,
  * each run through the app's own report pipeline on a throwaway database
  * (Docker) of made-up data, then graded by code. It costs money: the first
  * full pass on Claude Opus 5.5 cost about $1 (2026-11-17), at $0.03-0.10 per

@@ -1,13 +1,18 @@
 import type { RunState, SectionResult } from '../pipeline/state';
+import type { Period } from '../plan/query';
+import type { CheckResult, DerivedResult } from '../stages/derive';
 import type { PlanSection } from '../stages/plan';
 import { chartFor, isColor } from './chart';
 import { roleOf, type ColumnRole, type ReportVocabulary } from './columns';
-import type { ReportBlock, ReportDocument, ReportSection, ReportStyles, ReportTable } from './document';
+import type { ReportBlock, ReportDocument, ReportPeriod, ReportSection, ReportStyles, ReportTable, Verification } from './document';
+import { dayBefore } from './format';
 
 /**
  * Turns a finished run into the report people see (docs/report-engine-spec.md
- * §8): each section's numbers with their formats, its chart when the plan
- * wants one, and nothing about how they were computed (SQL, cost, repairs).
+ * §8): each section's numbers with their formats and derived values, its
+ * chart when the plan wants one, how far its numbers are checked, and the
+ * narrative. A sentence per section says how its numbers were computed, but
+ * nothing else of it reaches the report (SQL, cost, repairs).
  */
 
 /** Colours for series without their own: Open Color steps that read on light and dark. */
@@ -42,14 +47,26 @@ export function buildReport(run: RunState, vocabulary: ReportVocabulary, options
     styles: options.styles ?? {},
     palette: options.palette?.some(isColor) ? options.palette.filter(isColor) : DEFAULT_PALETTE,
   };
+  const derived = (run.derived ?? []).filter((value) => value.skipped === null);
+  const failedChecks = (run.checks ?? []).filter((check) => check.verdict === 'fail');
   return {
-    version: 1,
+    version: 2,
     title: run.plan.title,
     summary: run.plan.summary,
     request: run.request,
     status: run.status,
     currency: options.currency,
-    sections: run.plan.sections.map((section) => buildSection(section, results.get(section.id), context)),
+    period: periodOf(run.intent?.period ?? null),
+    comparison: periodOf(run.intent?.comparison ?? null),
+    assumptions: run.intent?.assumptions ?? [],
+    narrative: run.narrative ?? null,
+    sections: run.plan.sections.map((section) =>
+      buildSection(section, results.get(section.id), context, derived.filter((value) => value.section === section.id), failedChecks),
+    ),
+    sources: run.plan.sections.flatMap((section) => {
+      const result = results.get(section.id);
+      return result?.status === 'ok' && result.summary ? [{ section: section.id, title: section.title, summary: result.summary }] : [];
+    }),
   };
 }
 
@@ -59,13 +76,31 @@ interface Context {
   palette: readonly string[];
 }
 
-function buildSection(section: PlanSection, result: SectionResult | undefined, context: Context): ReportSection {
-  const head = { id: section.id, title: section.title };
-  if (section.display === 'text') return { ...head, description: null, block: { kind: 'text', text: section.purpose } };
-  return { ...head, description: result?.summary || section.purpose, block: blockOf(section, result, context) };
+/** A half-open period (`to` not included) as the days it covers. */
+const periodOf = (period: Period | null): ReportPeriod | null => (period ? { first: period.from, last: dayBefore(period.to) } : null);
+
+function verificationOf(id: string, result: SectionResult | undefined, failedChecks: readonly CheckResult[]): Verification | null {
+  if (!result || result.status !== 'ok' || result.check === undefined) return null;
+  if (result.truncated) return 'truncated';
+  if (failedChecks.some((check) => check.parts === id || check.total === id)) return 'unverified';
+  return result.check === 'match' || result.check === 'mismatch' || result.check === 'fallback' ? 'verified' : 'unverified';
 }
 
-function blockOf(section: PlanSection, result: SectionResult | undefined, context: Context): ReportBlock {
+function buildSection(
+  section: PlanSection,
+  result: SectionResult | undefined,
+  context: Context,
+  derived: readonly DerivedResult[],
+  failedChecks: readonly CheckResult[],
+): ReportSection {
+  const head = { id: section.id, title: section.title };
+  if (section.display === 'text') return { ...head, description: null, block: { kind: 'text', text: section.purpose }, verification: null };
+  // Compiled SQL describes itself in a code-written sentence; that one goes in the sources.
+  const description = (result?.source !== 'compiled' && result?.summary) || section.purpose;
+  return { ...head, description, block: blockOf(section, result, context, derived), verification: verificationOf(section.id, result, failedChecks) };
+}
+
+function blockOf(section: PlanSection, result: SectionResult | undefined, context: Context, derived: readonly DerivedResult[]): ReportBlock {
   if (!result || result.status === 'failed') return { kind: 'failed' };
   if (result.rows.length === 0) return { kind: 'empty' };
   const roles = result.columns.map((column) => roleOf(column, section.query, context.vocabulary));
@@ -74,6 +109,15 @@ function blockOf(section: PlanSection, result: SectionResult | undefined, contex
     rows: labelled(result.rows, roles, context.styles),
     truncated: result.truncated,
   };
+  // Derived values sit beside the rows they were computed from: one more column, or one more figure.
+  for (const value of derived) {
+    if (value.rows.length !== table.rows.length) continue;
+    const key = `derived:${value.id}`;
+    table.columns.push({ key, label: value.label, format: value.format });
+    value.rows.forEach((row, index) => {
+      table.rows[index]![key] = row.value;
+    });
+  }
   if (section.display === 'figure' && table.rows.length === 1) {
     const [row] = table.rows;
     return { kind: 'figures', figures: table.columns.map((column) => ({ label: column.label, value: row![column.key], format: column.format })) };

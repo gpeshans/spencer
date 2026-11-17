@@ -1,6 +1,6 @@
 # Report eval
 
-How often is a report *right*? This eval asks the report pipeline 26 questions whose answers are known, and grades what comes back by code.
+How often is a report *right*? This eval asks the report pipeline 31 questions whose answers are known, and grades what comes back by code.
 
 - **The household is made up.** Alice and Ben have 13 months of expenses up to today, and income that changes over time. A second household holds marker values that no report about the first may show. No real data is involved anywhere.
 - **It runs the app's own pipeline** (`planRun`, then `executeRun`) with production's settings: Claude Opus 5.5 with the Sonnet fallback, the $0.50 per-run budget, the 270 s deadline, and household values shared with the model. It runs on a throwaway Postgres in Docker with every migration applied.
@@ -58,23 +58,25 @@ Three numbers are graded:
 | **outcome** | It ended the expected way: answered, asked a question, refused, or said there's no data. |
 | **isolated** | No marker value from the other household appears anywhere in its results. This should always be 1. A 0 is a security bug, not a quality problem. |
 
-A report's facts can come from any section, because the plan picks the sections. Each kind of fact is checked differently:
+A report's facts can come from any section, or from a derived value (shown with its section's keys), because the plan picks them. Each kind of fact is checked differently:
 
 | Fact | Check |
 |---|---|
-| Number | It must be in some cell, to the cent. |
+| Number | It must be in some cell, to the cent. A percentage may be rounded to a tenth of a point, or come as a fraction (22.17 or 0.2217). |
 | Breakdown or trend | One section must have every expected row with its value, and no other row for the same key with a different value. Its remaining rows may only hold zeros. |
 | Listing | The amounts must be in order (or, for "list all", the same rows in any order). Descriptions and dates must match where the case names them. |
 
 Numbers that come back as text count too.
 
-**The baseline** (`results/baseline/`, 2026-11-17) scored 25 of 26, with an interval of 81–99%. The one miss is `earned-minus-spent`, as expected: the run returned income and spending as two figures but not their difference. So the set is close to its ceiling. It guards against regressions well, but measuring an improvement needs harder cases.
+**The baseline** (`results/baseline/`, 2026-11-17, before M3) scored 25 of the 26 cases there were then, with an interval of 81–99%. The one miss was `earned-minus-spent`: the run returned income and spending as two figures but not their difference. M3 added derived values for that, and five more cases that need them (tagged `derived`).
 
-**Noise.** 26 cases at one rep give a 95% interval of about ±20 points, which `summary.md` prints. So compare variants with `--reps 2` or more, and look at which cases flipped, not only at the headline. One case fails until M3 by design: `earned-minus-spent` needs a difference across two views, and derived values come in M3.
+**Noise.** 31 cases at one rep give a 95% interval of up to about ±18 points, which `summary.md` prints. So compare variants with `--reps 2` or more, and look at which cases flipped, not only at the headline.
+
+Each row also records `compiled_used`, the sections shown from the compiled SQL because the LLM's differed or failed, and `narrated`, whether the report got a narrative.
 
 ## What it doesn't cover
 
-- the narrative and cross-checks (M3, not built yet);
+- the narrative's wording (only whether one was written is recorded);
 - the formatted document, the charts and the PDF;
 - the UI.
 

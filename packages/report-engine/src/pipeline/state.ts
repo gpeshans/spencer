@@ -1,6 +1,8 @@
 import type { RunStatus } from '../core/run-status';
 import { ZERO_USAGE, type LlmUsage } from '../llm';
 import type { ParamValue, QueryColumn } from '../pg';
+import type { Narrative } from '../report/document';
+import type { CheckResult, DerivedResult } from '../stages/derive';
 import type { Feasibility } from '../stages/feasibility';
 import type { Intent } from '../stages/intent';
 import type { ReportPlan } from '../stages/plan';
@@ -12,7 +14,8 @@ import type { ReportPlan } from '../stages/plan';
  */
 
 export type PlanningStage = 'understanding' | 'checking' | 'planning';
-export type ExecutionStage = 'writing_sql' | 'validating' | 'executing';
+/** verifying: stage 7, the cross-checks and derived values. narrating: stage 8. */
+export type ExecutionStage = 'writing_sql' | 'validating' | 'executing' | 'verifying' | 'narrating';
 export type RunStage = PlanningStage | ExecutionStage;
 
 export interface Clarification {
@@ -34,6 +37,17 @@ export interface RunFailure {
   details?: string[];
 }
 
+/**
+ * The compiled cross-check of a section (spec §4, stage 7): its rows set
+ * against those of the SQL compiled from its structured query.
+ * - match: the same rows.
+ * - mismatch: different rows; the compiled ones are shown.
+ * - fallback: the LLM's SQL kept failing; the compiled rows are shown.
+ * - unavailable: nothing to compare: the compiled SQL failed, or rows were cut.
+ * - none: the section has no structured query, so nothing compiles.
+ */
+export type CompiledCheck = 'match' | 'mismatch' | 'fallback' | 'unavailable' | 'none';
+
 /** One section's outcome, after its SQL was written, checked and run. */
 export interface SectionResult {
   section: string;
@@ -49,6 +63,12 @@ export interface SectionResult {
   attempts: number;
   /** What was wrong with the last version, when it failed. */
   problems: string[];
+  /** Whose SQL the rows come from; the SQL, params and summary above are that one's. Missing before M3: the LLM's. */
+  source?: 'llm' | 'compiled';
+  /** The compiled cross-check. Missing before M3. */
+  check?: CompiledCheck;
+  /** For a mismatch, what differed. */
+  mismatch?: string;
 }
 
 export interface RunState {
@@ -70,6 +90,12 @@ export interface RunState {
   pendingUntil: string | null;
   /** Per section, once the SQL has run (stage 6). */
   results: SectionResult[] | null;
+  /** Stage 7: the plan's derived values. */
+  derived: DerivedResult[] | null;
+  /** Stage 7: the plan's cross-checks. */
+  checks: CheckResult[] | null;
+  /** Stage 8: the headline and insights; null when there are none. */
+  narrative: Narrative | null;
   error: RunFailure | null;
   usage: LlmUsage;
   costUsd: number;
@@ -127,6 +153,9 @@ export function newRun(id: string, request: string): RunState {
     approval: null,
     pendingUntil: null,
     results: null,
+    derived: null,
+    checks: null,
+    narrative: null,
     error: null,
     usage: ZERO_USAGE,
     costUsd: 0,

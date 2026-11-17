@@ -16,7 +16,8 @@ import { dockerAvailable } from './harness';
  * through the executor and the signed scope: what lands on disk, a lost
  * attempt kept out of the scores, a rerun that resumes, the report. Then a
  * scripted LLM answers every stage, so a run plans, writes SQL, runs it
- * against the fixture database and gets graded on what came back.
+ * against the fixture database beside the compiled SQL, writes a narrative,
+ * and gets graded on what came back, the compiled fallback included.
  */
 
 const lines = <T>(file: string): T[] =>
@@ -68,8 +69,11 @@ describe.skipIf(!dockerAvailable())('the eval runner, offline', () => {
     const monthBefore = { from: fixture.monthStart(-2), to: fixture.monthStart(-1) };
     const where = 'where spent_on >= $1::date and spent_on < $2::date';
 
-    const script = (period: { from: string; to: string }, dimension: 'member' | null) => {
+    /** A run that asks for `metric`, by `dimension` or as a total; `broken` SQL names a column that isn't there. */
+    const script = (period: { from: string; to: string }, dimension: 'member' | null, { metric = 'spend', broken = false } = {}) => {
       const id = dimension ? `by_${dimension}` : 'total';
+      const column = broken ? 'spent_onn' : 'spent_on';
+      const total = metric === 'spend' ? 'sum(amount)' : 'count(*)';
       const plan: ReportPlan = {
         title: 'Last month',
         summary: 'Spending last month.',
@@ -82,7 +86,7 @@ describe.skipIf(!dockerAvailable())('the eval runner, offline', () => {
             query: {
               shape: 'aggregate',
               relation: 'reporting.spendings',
-              metrics: ['spend'],
+              metrics: [metric],
               dimensions: dimension ? [dimension] : [],
               grain: null,
               filters: [],
@@ -100,7 +104,7 @@ describe.skipIf(!dockerAvailable())('the eval runner, offline', () => {
         intent: {
           kind: dimension ? 'breakdown' : 'figure',
           restated: 'Spending last month.',
-          metrics: ['spend'],
+          metrics: [metric],
           dimensions: dimension ? [dimension] : [],
           grain: null,
           filters: [],
@@ -127,18 +131,22 @@ describe.skipIf(!dockerAvailable())('the eval runner, offline', () => {
                 }
               : {
                   section: id,
-                  sql: `select sum(amount) as spend from reporting.spendings ${where}`,
+                  sql: `select ${total} as ${metric} from reporting.spendings ${where.replaceAll('spent_on', column)}`,
                   params: [period.from, period.to],
-                  summary: 'Total spending.',
-                  columns: [{ name: 'spend', type: 'number' }],
+                  summary: 'The total.',
+                  columns: [{ name: metric, type: 'number' }],
                 },
           ],
         },
+        narrative: { headline: 'You spent {v3}.', insights: [] },
       };
     };
+    const broken = script(lastMonth, null, { metric: 'expense_count', broken: true });
     const scripts: Record<string, Record<string, unknown>> = {
       'total-last-month': script(lastMonth, null),
       'by-member-last-month': script(monthBefore, 'member'),
+      // SQL that never runs, repairs included: the compiled SQL answers.
+      'count-last-month': { ...broken, sql_repair: broken.sql },
     };
     const llm = offlineLlm((evalCase, stage) => {
       const answer = scripts[evalCase.id]?.[stage];
@@ -152,21 +160,36 @@ describe.skipIf(!dockerAvailable())('the eval runner, offline', () => {
     expect(rows['total-last-month']).toMatchObject({
       grade: { correct: 1, outcome: 1, isolated: 1 },
       actual: { outcome: 'answer', code: null, facts: [{ met: true, detail: 'in total' }] },
-      llm_calls: 3,
+      llm_calls: 4,
       repairs: 0,
+      compiled_used: 0,
+      narrated: 1,
       meta: { run_status: 'succeeded' },
     });
+    // Consistently wrong: the compiled SQL follows the same plan, so it agrees, and the grade is still no.
     expect(rows['by-member-last-month']).toMatchObject({
       grade: { correct: 0, outcome: 1, isolated: 1 },
       actual: { outcome: 'answer', facts: [{ met: false }] },
+      compiled_used: 0,
     });
     expect(rows['by-member-last-month']!.actual.facts[0]!.detail).toMatch(/^closest is by_member: missing (Alice|Ben) = /);
 
     const trace = JSON.parse(readFileSync(path.join(outDir, 'v1', 'traces', 'total-last-month_rep0.json'), 'utf8')) as Turn[];
-    expect(trace.map((turn) => turn.name ?? turn.role)).toEqual(expect.arrayContaining(['intent', 'plan', 'sql', 'sql total', 'outcome']));
+    expect(trace.map((turn) => turn.name ?? turn.role)).toEqual(expect.arrayContaining(['intent', 'plan', 'sql', 'narrative', 'sql total', 'outcome']));
     const result = trace.find((turn) => turn.role === 'tool_result');
     expect(result?.content).toContain('"spend"');
+    expect(result?.content).toContain('(llm rows, check: match)');
   }, 240_000);
+
+  it('answers from the compiled SQL when the SQL the LLM writes never runs', () => {
+    const rows = lines<EvalRow>(path.join(outDir, 'v1', 'results.jsonl'));
+    expect(rows.find((row) => row.prompt_id === 'count-last-month')).toMatchObject({
+      grade: { correct: 1, outcome: 1, isolated: 1 },
+      repairs: 2,
+      compiled_used: 1,
+      meta: { run_status: 'succeeded' },
+    });
+  });
 
   it('builds the report from what it wrote', () => {
     execFileSync(process.execPath, [path.resolve('evals/reports/build-report-lite.mjs'), outDir], { stdio: 'pipe' });

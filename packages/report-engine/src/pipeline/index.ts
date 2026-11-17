@@ -1,3 +1,4 @@
+export { compareResults, type ComparedResult, type Comparison } from './compare';
 export {
   DEFAULT_EXECUTION_LIMITS,
   executeRun,
@@ -23,6 +24,7 @@ export {
   newRun,
   RunStateError,
   type Clarification,
+  type CompiledCheck,
   type ExecutionStage,
   type PlanningStage,
   type RunFailure,

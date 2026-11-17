@@ -80,13 +80,14 @@ const byMonthSql = (column: string): SectionSql => ({
   ],
 });
 
-/** Answers the SQL stage from a script; the repair prompt is kept for inspection. */
+/** Answers the SQL stage from a script, and the narrative with one cited figure; the prompts are kept for inspection. */
 function scripted(answers: SectionSql[][]) {
   const inputs: string[] = [];
   const llm: LlmProvider = {
     async generate<T>(request: GenerateRequest<T>): Promise<GenerateResult<T>> {
       inputs.push(request.input);
-      const output = request.schema.parse({ sections: answers.shift() ?? [] });
+      const answer = request.stage === 'narrative' ? { headline: 'You spent {v1}.', insights: [] } : { sections: answers.shift() ?? [] };
+      const output = request.schema.parse(answer);
       return { ok: true, output, calls: [] };
     },
   };
@@ -138,10 +139,15 @@ describe.skipIf(!dockerAvailable())('stages 4-6 on a local Postgres 17.6', () =>
     return { state, inputs };
   }
 
-  it("runs each section's SQL in the household's scope, with typed results", async () => {
+  it("runs each section's SQL in the household's scope, with typed results, and the compiled SQL agrees", async () => {
     const { state } = await execute([[totalSql, byMonthSql('spent_on')]]);
 
     expect(state.status).toBe('succeeded');
+    expect(state.results!.map((result) => [result.section, result.source, result.check])).toEqual([
+      ['total', 'llm', 'match'],
+      ['by_month', 'llm', 'match'],
+    ]);
+    expect(state.narrative?.headline).toEqual(['You spent ', { value: 42.5, format: { kind: 'money' } }, '.']);
     const [total, byMonth] = state.results!;
     expect(total).toMatchObject({ status: 'ok', rows: [{ spend: 42.5 }], columns: [{ name: 'spend', type: 'number' }] });
     expect(byMonth).toMatchObject({

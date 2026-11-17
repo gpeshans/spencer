@@ -91,6 +91,41 @@ describe('toRow and fromRow', () => {
     expect(fromRow(rowOf(state))).toEqual({ ...state, costUsd: 0.031235 });
   });
 
+  it("keep stage 7 and 8's outputs beside the results", () => {
+    const state = fullState({
+      status: 'succeeded',
+      stage: null,
+      pendingUntil: null,
+      results: [
+        {
+          section: 'total',
+          status: 'ok',
+          sql: 'select …',
+          params: [],
+          summary: 'Spend.',
+          columns: [{ name: 'spend', type: 'number' }],
+          rows: [{ spend: 42 }],
+          truncated: false,
+          attempts: 1,
+          problems: [],
+          source: 'compiled',
+          check: 'mismatch',
+          mismatch: 'the total: spend 41, against 42',
+        },
+      ],
+      derived: [{ id: 'left', kind: 'difference', label: 'Left', section: 'total', format: { kind: 'money' }, rows: [{ key: {}, value: 8 }], skipped: null }],
+      checks: [{ kind: 'sums_to', parts: 'a', total: 'total', metric: 'spend', verdict: 'skipped', detail: 'section a couldn\'t be computed' }],
+      narrative: { headline: ['You spent ', { value: 42, format: { kind: 'money' } }, '.'], insights: [] },
+    });
+    expect(fromRow(rowOf(state))).toEqual({ ...state, costUsd: 0.031235 });
+  });
+
+  it('read a row from before M3 with no derived values, checks or narrative', () => {
+    const row = rowOf(fullState({ status: 'succeeded', results: [] }));
+    const old = fromRow({ ...row, result: { sections: [] } });
+    expect(old).toMatchObject({ results: [], derived: null, checks: null, narrative: null });
+  });
+
   it('add the cache writes up into one column, and mark when a run finished', () => {
     const row = toRow(fullState({ usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWrite5mTokens: 10, cacheWrite1hTokens: 5 } }), NOW);
     expect(row.cache_write_tokens).toBe(15);

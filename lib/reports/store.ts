@@ -4,10 +4,13 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 // Types only: the report pages read through this module, and they don't need
 // the engine (or its SQL parser) in their bundles.
 import type {
+  CheckResult,
   Clarification,
+  DerivedResult,
   Feasibility,
   Intent,
   LlmCallRecord,
+  Narrative,
   QueryAttempt,
   QueryOutcome,
   ReportPlan,
@@ -54,6 +57,14 @@ export class StoreError extends Error {
 
 const asJson = (value: unknown) => value as Json;
 
+/** What `report_runs.result` holds: stages 6 to 8. Rows from before M3 hold only the sections. */
+interface StoredResult {
+  sections: SectionResult[];
+  derived?: DerivedResult[] | null;
+  checks?: CheckResult[] | null;
+  narrative?: Narrative | null;
+}
+
 /** The columns a run's state is stored in. The intent and plan carry their bookkeeping alongside. */
 export function toRow(state: RunState, now = new Date()): RunUpdate {
   return {
@@ -64,7 +75,9 @@ export function toRow(state: RunState, now = new Date()): RunUpdate {
     plan: state.plan ? asJson({ plan: state.plan, unchecked: state.unchecked, approval: state.approval }) : null,
     plan_hash: state.planHash,
     clarification: asJson(state.clarifications),
-    result: state.results ? asJson({ sections: state.results }) : null,
+    result: state.results
+      ? asJson({ sections: state.results, derived: state.derived, checks: state.checks, narrative: state.narrative } satisfies StoredResult)
+      : null,
     error: asJson(state.error),
     input_tokens: state.usage.inputTokens,
     output_tokens: state.usage.outputTokens,
@@ -81,7 +94,7 @@ export function toRow(state: RunState, now = new Date()): RunUpdate {
 export function fromRow(row: ReportRunRow): RunState {
   const intent = row.intent as { intent: Intent; flags: string[] } | null;
   const plan = row.plan as { plan: ReportPlan; unchecked: string[]; approval: RunState['approval'] } | null;
-  const result = row.result as { sections: SectionResult[] } | null;
+  const result = row.result as StoredResult | null;
   return {
     id: row.id,
     status: row.status,
@@ -97,6 +110,9 @@ export function fromRow(row: ReportRunRow): RunState {
     approval: plan?.approval ?? null,
     pendingUntil: row.approval_expires_at,
     results: result?.sections ?? null,
+    derived: result?.derived ?? null,
+    checks: result?.checks ?? null,
+    narrative: result?.narrative ?? null,
     error: row.error as RunFailure | null,
     usage: {
       inputTokens: row.input_tokens,
@@ -274,6 +290,7 @@ export async function recordQuery(runId: string, attempt: QueryAttempt): Promise
       truncated: attempt.truncated !== false,
       duration_ms: attempt.durationMs,
       error: attempt.problems.length > 0 ? asJson({ problems: attempt.problems }) : null,
+      cross_check: attempt.crossCheck ? asJson(attempt.crossCheck) : null,
     });
   if (error) throw new StoreError('record query', error.message);
 }
