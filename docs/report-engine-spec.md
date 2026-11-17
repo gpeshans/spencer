@@ -505,7 +505,7 @@ Execution continues in `after()`, so it survives a closed tab. Small mutations (
   2. It builds the document with `reportPresentation()` (`lib/reports/presentation.ts`) and renders it.
   3. It answers `application/pdf`, `Content-Disposition: attachment` and `Cache-Control: private, no-store`.
   4. It needs no secrets: no LLM call and no reporting connection.
-  5. `next.config.ts` ships the two Geist files with it.
+  5. `next.config.ts` ships the two Geist files with it. If they're missing, it logs a warning and draws the PDF in Helvetica.
 - **The download.** The page fetches the file, so the button can show it's working and a failure is a message.
 
 **Proxy:** exempt `/api/cron/reports` from the logged-out redirect to `/login` (`lib/supabase/proxy-session.ts:39-46`). Vercel Cron doesn't follow redirects, so without the exemption the job would silently do nothing. The route authenticates with `CRON_SECRET` and takes no input.

@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 import { renderReportPdf } from 'report-engine/pdf';
@@ -9,10 +10,21 @@ import { reportPresentation } from '@/lib/reports/presentation';
 import { loadRun } from '@/lib/reports/store';
 
 /** Geist, the app's typeface. next.config.ts ships these two files with the route. */
-const FONTS = {
+const GEIST = {
   regular: path.join(process.cwd(), 'node_modules', 'geist', 'dist', 'fonts', 'geist-sans', 'Geist-Regular.ttf'),
   bold: path.join(process.cwd(), 'node_modules', 'geist', 'dist', 'fonts', 'geist-sans', 'Geist-SemiBold.ttf'),
 };
+
+let fonts: typeof GEIST | undefined | null = null;
+
+/** Geist when its files are there; otherwise the PDF falls back to Helvetica rather than failing. */
+function pdfFonts(): typeof GEIST | undefined {
+  if (fonts === null) {
+    fonts = existsSync(GEIST.regular) && existsSync(GEIST.bold) ? GEIST : undefined;
+    if (!fonts) console.warn('reports pdf: the Geist font files are missing; using Helvetica.', GEIST);
+  }
+  return fonts;
+}
 
 /**
  * A finished report as a PDF, drawn from the same document as its page
@@ -36,7 +48,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ run
       // A finished run is last written when it ends.
       asOf: stored.updatedAt,
       brand: 'Spencer',
-      fonts: FONTS,
+      fonts: pdfFonts(),
     });
     return new Response(new Uint8Array(pdf), {
       headers: {

@@ -205,8 +205,8 @@ function Ring({
         </PieChart>
       </ChartContainer>
       <ul className="flex flex-col gap-1.5 text-sm">
-        {slices.map((slice) => (
-          <li key={slice.x} className="flex items-center gap-2">
+        {slices.map((slice, index) => (
+          <li key={index} className="flex items-center gap-2">
             <span className="size-2.5 shrink-0 rounded-[2px]" style={{ backgroundColor: slice.fill }} />
             <span className="min-w-0 flex-1 truncate">{slice.x}</span>
             <span className="tabular-nums">{formatValue(slice.value, chart.value, format)}</span>

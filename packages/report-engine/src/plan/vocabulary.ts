@@ -65,7 +65,8 @@ export function buildVocabulary(model: SemanticModel): Vocabulary {
     return column ? columnKind(column.type) : null;
   };
 
-  const units = new Map(model.columnUnits.map((entry) => [`${entry.relation}.${entry.column}`, entry.unit]));
+  // `?? []`: a model file read without parseSemanticModel may predate column units.
+  const units = new Map((model.columnUnits ?? []).map((entry) => [`${entry.relation}.${entry.column}`, entry.unit]));
 
   const relations = model.relations.map((relation): RelationVocabulary => {
     const ownDimensions = model.dimensions.filter((dimension) => dimension.relation === relation.name);
