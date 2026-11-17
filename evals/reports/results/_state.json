@@ -42,6 +42,14 @@
     {
       "id": "asked_approval",
       "label": "Approval"
+    },
+    {
+      "id": "compiled_used",
+      "label": "Compiled rows"
+    },
+    {
+      "id": "narrated",
+      "label": "Narrative"
     }
   ]
 }
