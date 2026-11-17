@@ -144,6 +144,7 @@ export {
   nextStatuses,
   type RunStatus,
 } from './core/run-status';
+export { SUPABASE_ROOT_CA_2021 } from './supabase/ca';
 export { signScope, type SignScopeInput } from './supabase/signed-scope';
 export {
   addUsage,
@@ -174,8 +175,10 @@ export {
   DEFAULT_EXECUTOR_LIMITS,
   exactNumber,
   parserFor,
+  staysLocal,
   tlsProblem,
   toQueryError,
+  trustedSsl,
   type ColumnType,
   type ExecutorLimits,
   type ExecutorOptions,
@@ -189,6 +192,7 @@ export {
   type RunError,
   type RunInput,
   type RunOutcome,
+  type TrustedSsl,
 } from './pg';
 export {
   buildSemanticModel,
