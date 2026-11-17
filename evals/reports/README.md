@@ -11,10 +11,10 @@ The cases and every expected value, as of the day they were generated, are in [C
 
 ## Running it
 
-It needs Docker and `ANTHROPIC_API_KEY` (read from `.env.local`). **Each run spends money.** Estimates, to be confirmed by the first pilot:
-- an answered question costs about $0.15–0.40;
-- a refused or clarified one costs a few cents;
-- so a full pass is roughly $4–9.
+It needs Docker and `ANTHROPIC_API_KEY` (read from `.env.local`). **Each run spends money.** The first baseline (2026-11-17) measured:
+- about $1.03 and 2 minutes for a full pass at concurrency 3;
+- an answered question cost $0.03–0.10, and a refused or clarified one about $0.01–0.03;
+- the first few questions cost the most, because they write the prompt cache that the rest read.
 
 ```sh
 npm run reports:eval -- --list                      # the cases and their expected values as of today, in CASES.md (free)
@@ -67,6 +67,8 @@ A report's facts can come from any section, because the plan picks the sections.
 | Listing | The amounts must be in order (or, for "list all", the same rows in any order). Descriptions and dates must match where the case names them. |
 
 Numbers that come back as text count too.
+
+**The baseline** (`results/baseline/`, 2026-11-17) scored 25 of 26, with an interval of 81–99%. The one miss is `earned-minus-spent`, as expected: the run returned income and spending as two figures but not their difference. So the set is close to its ceiling. It guards against regressions well, but measuring an improvement needs harder cases.
 
 **Noise.** 26 cases at one rep give a 95% interval of about ±20 points, which `summary.md` prints. So compare variants with `--reps 2` or more, and look at which cases flipped, not only at the headline. One case fails until M3 by design: `earned-minus-spent` needs a difference across two views, and derived values come in M3.
 

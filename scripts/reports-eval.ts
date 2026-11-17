@@ -1,9 +1,9 @@
 /**
  * The report eval (evals/reports/README.md): 26 questions with known answers,
  * each run through the app's own report pipeline on a throwaway database
- * (Docker) of made-up data, then graded by code. It costs money: about
- * $0.15-0.40 per answered question on Claude Opus 5.5, and a few cents per
- * refused or clarifying one. --max-usd stops it from starting more.
+ * (Docker) of made-up data, then graded by code. It costs money: the first
+ * full pass on Claude Opus 5.5 cost about $1 (2026-11-17), at $0.03-0.10 per
+ * answered question. --max-usd stops it from starting more.
  *
  *   npm run reports:eval -- --list               the cases and their gold, as of today (free)
  *   npm run reports:eval -- --cases a,b,c        a pilot of a few cases
