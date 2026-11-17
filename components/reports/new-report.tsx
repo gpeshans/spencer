@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import type { ReportPresentation } from '@/lib/reports/presentation';
 
 import { RunView } from './run-view';
 import { useReportRun } from './use-report-run';
@@ -17,7 +18,15 @@ interface Suggestion {
  * Asks a question and follows the run on this page as it streams. The address
  * changes to the run's own page, so a reload (or a closed tab, later) finds it.
  */
-export function NewReport({ suggestions, pollMs }: { suggestions: Suggestion[]; pollMs: number }) {
+export function NewReport({
+  suggestions,
+  pollMs,
+  presentation,
+}: {
+  suggestions: Suggestion[];
+  pollMs: number;
+  presentation: ReportPresentation;
+}) {
   const router = useRouter();
   const [text, setText] = useState('');
   const report = useReportRun(null, pollMs);
@@ -34,6 +43,7 @@ export function NewReport({ suggestions, pollMs }: { suggestions: Suggestion[]; 
       <div className="flex flex-col gap-4">
         <RunView
           run={report.run}
+          presentation={presentation}
           sending={report.sending}
           onAnswer={(answer) => void report.answer(answer)}
           onApprove={() => void report.approve()}

@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { NewReport } from '@/components/reports/new-report';
 import { StatusBadge } from '@/components/reports/status-badge';
 import { formatShortDate } from '@/lib/format';
+import { reportPresentation } from '@/lib/reports/presentation';
 import { recentRuns } from '@/lib/reports/store';
 import { getProfile } from '@/lib/session';
 import { reportsConfig } from '@/reports.config';
@@ -11,7 +12,7 @@ import model from '@/supabase/reporting/semantic-model.json';
 export default async function ReportsPage() {
   // The (app) layout has already checked the session; this reuses its cached profile.
   const context = await getProfile();
-  const runs = context ? await recentRuns(context.supabase, 10) : [];
+  const [runs, presentation] = await Promise.all([context ? recentRuns(context.supabase, 10) : [], reportPresentation()]);
   const suggestions = model.suggestedReports.map(({ title, request }) => ({ title, request }));
 
   return (
@@ -19,12 +20,12 @@ export default async function ReportsPage() {
       <div className="flex flex-col gap-1">
         <h1 className="text-xl font-semibold tracking-tight">Reports</h1>
         <p className="text-sm text-muted-foreground">
-          Ask a question about your household’s spending and income. You’ll see the plan, the SQL it runs and the
-          results.
+          Ask a question about your household’s spending and income, and get a report with charts and tables that
+          you can download as a PDF.
         </p>
       </div>
 
-      <NewReport suggestions={suggestions} pollMs={reportsConfig.pollMs} />
+      <NewReport suggestions={suggestions} pollMs={reportsConfig.pollMs} presentation={presentation} />
 
       {runs.length > 0 && (
         <section className="flex flex-col gap-2">

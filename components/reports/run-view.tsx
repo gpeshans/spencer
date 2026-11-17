@@ -1,26 +1,34 @@
 'use client';
 
 import { CircleAlert, CircleCheck, LoaderCircle, Send } from 'lucide-react';
-import { useState } from 'react';
-import type { PlanSection, RunStage, RunState, SectionResult } from 'report-engine';
+import { useMemo, useState } from 'react';
+import type { PlanSection, RunStage, RunState } from 'report-engine';
+import { buildReport, reportFileName } from 'report-engine/report';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { DEFAULT_CURRENCY, LOCALE, todayISO } from '@/lib/format';
 import { isWorking } from '@/lib/reports/client';
+import type { ReportPresentation } from '@/lib/reports/presentation';
 
+import { DownloadPdf } from './download-pdf';
+import { ReportView } from './report-view';
 import { StatusBadge } from './status-badge';
-import { LOCALE } from '@/lib/format';
 
-/** What a run looks like on the page, by status: progress, a question, a plan to approve, or results. */
+/**
+ * What a run looks like on the page, by status: progress, a question, a plan
+ * to approve, or the report. How it was computed (cost, why a section failed)
+ * waits in a collapsed "Details" line at the end; the SQL stays in the logs.
+ */
 
 const STAGES: ReadonlyArray<{ stage: RunStage; label: string }> = [
   { stage: 'understanding', label: 'Understanding the question' },
   { stage: 'checking', label: 'Checking the data' },
   { stage: 'planning', label: 'Planning the report' },
-  { stage: 'writing_sql', label: 'Writing the SQL' },
-  { stage: 'validating', label: 'Checking the SQL' },
+  { stage: 'writing_sql', label: 'Writing the queries' },
+  { stage: 'validating', label: 'Checking the queries' },
   { stage: 'executing', label: 'Running the queries' },
 ];
 
@@ -29,8 +37,13 @@ const usd = (value: number) => `$${value.toFixed(value < 0.1 ? 3 : 2)}`;
 /** An open question or approval past its time can't be acted on, whatever the page last saw. */
 const pastDue = (run: RunState) => run.pendingUntil !== null && Date.parse(run.pendingUntil) <= Date.now();
 
+/** Failure details people can act on: the dates that have data, or the question still open. */
+const USEFUL_DETAILS: ReadonlySet<string> = new Set(['infeasible', 'unclear']);
+
 export interface RunViewProps {
   run: RunState;
+  /** Names, units and colours for the report. */
+  presentation: ReportPresentation;
   /** A request of ours is under way: actions wait for it. */
   sending: boolean;
   onAnswer(answer: string): void;
@@ -38,7 +51,7 @@ export interface RunViewProps {
   onReject(): void;
 }
 
-export function RunView({ run, sending, onAnswer, onApprove, onReject }: RunViewProps) {
+export function RunView({ run, presentation, sending, onAnswer, onApprove, onReject }: RunViewProps) {
   const expired = run.status === 'expired' || ((run.status === 'needs_clarification' || run.status === 'awaiting_approval') && pastDue(run));
   return (
     <div className="flex flex-col gap-4">
@@ -46,7 +59,6 @@ export function RunView({ run, sending, onAnswer, onApprove, onReject }: RunView
         <p className="text-base font-medium leading-snug">“{run.request}”</p>
         <StatusBadge status={expired ? 'expired' : run.status} />
       </div>
-      {run.costUsd > 0 && <p className="-mt-2 text-xs text-muted-foreground">{usd(run.costUsd)} spent on this report</p>}
 
       {isWorking(run.status) && <Progress run={run} />}
       {expired && (
@@ -56,9 +68,10 @@ export function RunView({ run, sending, onAnswer, onApprove, onReject }: RunView
       {!expired && run.status === 'awaiting_approval' && (
         <PlanReview run={run} sending={sending} onApprove={onApprove} onReject={onReject} />
       )}
-      {(run.status === 'succeeded' || run.status === 'partial') && <Results run={run} />}
+      {(run.status === 'succeeded' || run.status === 'partial') && <Results run={run} presentation={presentation} />}
       {run.status === 'failed' && <Failure run={run} />}
       {run.status === 'rejected' && <Note>You declined this run. Nothing was run.</Note>}
+      <RunDetails run={run} />
     </div>
   );
 }
@@ -68,7 +81,7 @@ function Note({ children }: { children: React.ReactNode }) {
 }
 
 function Progress({ run }: { run: RunState }) {
-  // An approved run that hasn't started yet is about to write its SQL.
+  // An approved run that hasn't started yet is about to write its queries.
   const current = run.stage ?? (run.status === 'executing' ? 'writing_sql' : 'understanding');
   const at = STAGES.findIndex((entry) => entry.stage === current);
   const visible = run.status === 'executing' ? STAGES : STAGES.slice(0, 3);
@@ -205,120 +218,72 @@ function PlanReview({
   );
 }
 
-function formatValue(value: unknown): string {
-  if (value === null || value === undefined) return '—';
-  if (typeof value === 'number') return value.toLocaleString(LOCALE, { maximumFractionDigits: 2 });
-  if (typeof value === 'boolean') return value ? 'yes' : 'no';
-  if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
-}
-
-function Results({ run }: { run: RunState }) {
-  const plan = run.plan;
-  if (!plan) return null;
-  const results = new Map((run.results ?? []).map((result) => [result.section, result]));
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold tracking-tight">{plan.title}</h2>
-        <p className="text-sm text-muted-foreground">{plan.summary}</p>
-      </div>
-      {run.status === 'partial' && <Note>Some sections couldn’t be computed; they say why below.</Note>}
-      {plan.sections.map((section) =>
-        section.display === 'text' ? (
-          <p key={section.id} className="text-sm">
-            {section.purpose}
-          </p>
-        ) : (
-          <SectionCard key={section.id} section={section} result={results.get(section.id)} unchecked={run.unchecked.includes(section.id)} />
-        ),
-      )}
-    </div>
+function Results({ run, presentation }: { run: RunState; presentation: ReportPresentation }) {
+  const report = useMemo(
+    () => buildReport(run, presentation.vocabulary, { currency: DEFAULT_CURRENCY, styles: presentation.styles }),
+    [run, presentation],
   );
-}
-
-function SectionCard({ section, result, unchecked }: { section: PlanSection; result?: SectionResult; unchecked: boolean }) {
+  if (!report) return null;
   return (
-    <Card size="sm">
-      <CardHeader>
-        <CardTitle>{section.title}</CardTitle>
-        {result?.summary && <CardDescription>{result.summary}</CardDescription>}
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        {!result || result.status === 'failed' ? (
-          <div className="flex items-start gap-2 text-sm text-destructive">
-            <CircleAlert className="mt-0.5 size-4 shrink-0" />
-            <span>
-              This section couldn’t be computed
-              {result && result.problems.length > 0 ? `: ${result.problems.join(' ')}` : '.'}
-            </span>
-          </div>
-        ) : result.rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No rows.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-muted-foreground">
-                  {result.columns.map((column) => (
-                    <th key={column.name} className="px-2 py-1.5 font-medium">
-                      {column.name.replaceAll('_', ' ')}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {result.rows.map((row, index) => (
-                  <tr key={index} className="border-b last:border-0">
-                    {result.columns.map((column) => (
-                      <td
-                        key={column.name}
-                        className={column.type === 'number' || column.type === 'integer' ? 'px-2 py-1.5 text-right tabular-nums' : 'px-2 py-1.5'}
-                      >
-                        {formatValue(row[column.name])}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        {result?.truncated && (
-          <p className="text-xs text-muted-foreground">Only the first rows are shown: the result was too large.</p>
-        )}
-        {unchecked && (
-          <p className="text-xs text-muted-foreground">This section had no compiled cross-check.</p>
-        )}
-        {result?.sql && (
-          <details className="text-xs">
-            <summary className="cursor-pointer text-muted-foreground">SQL</summary>
-            <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-lg bg-muted p-2 font-mono">{result.sql}</pre>
-            {result.params.length > 0 && (
-              <p className="mt-1 font-mono text-muted-foreground">Parameters: {JSON.stringify(result.params)}</p>
-            )}
-          </details>
-        )}
-      </CardContent>
-    </Card>
+    <ReportView
+      report={report}
+      format={{ locale: LOCALE, currency: report.currency }}
+      actions={<DownloadPdf runId={run.id} fileName={reportFileName(report.title, todayISO())} />}
+    />
   );
 }
 
 function Failure({ run }: { run: RunState }) {
   const error = run.error;
+  const details = error && USEFUL_DETAILS.has(error.code) ? (error.details ?? []) : [];
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-3 text-sm">
       <div className="flex items-start gap-2 text-destructive">
         <CircleAlert className="mt-0.5 size-4 shrink-0" />
         <span>{error?.message ?? 'The run failed.'}</span>
       </div>
-      {error?.details && error.details.length > 0 && (
+      {details.length > 0 && (
         <ul className="list-disc pl-6 text-muted-foreground">
-          {error.details.map((detail) => (
+          {details.map((detail) => (
             <li key={detail}>{detail}</li>
           ))}
         </ul>
       )}
     </div>
+  );
+}
+
+/** How the run went, for the curious: its cost and why anything failed. Collapsed, at the end. */
+function RunDetails({ run }: { run: RunState }) {
+  const titles = new Map(run.plan?.sections.map((section) => [section.id, section.title]));
+  const failed = (run.results ?? []).filter((result) => result.status === 'failed' && result.problems.length > 0);
+  // A run whose sections failed lists the same problems per section, above.
+  const errorDetails =
+    run.error && !USEFUL_DETAILS.has(run.error.code) && run.error.code !== 'sections_failed' ? (run.error.details ?? []) : [];
+  if (run.costUsd <= 0 && failed.length === 0 && errorDetails.length === 0) return null;
+  return (
+    <details className="text-xs text-muted-foreground">
+      <summary className="w-fit cursor-pointer select-none hover:text-foreground">Details</summary>
+      <div className="mt-2 flex flex-col gap-2 break-words">
+        {run.costUsd > 0 && <p>This report cost {usd(run.costUsd)} in model usage.</p>}
+        {failed.map((result) => (
+          <div key={result.section}>
+            <p className="font-medium">{titles.get(result.section) ?? result.section} couldn’t be computed:</p>
+            <ul className="list-disc pl-5">
+              {result.problems.map((problem) => (
+                <li key={problem}>{problem}</li>
+              ))}
+            </ul>
+          </div>
+        ))}
+        {errorDetails.length > 0 && (
+          <ul className="list-disc pl-5">
+            {errorDetails.map((detail) => (
+              <li key={detail}>{detail}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </details>
   );
 }
