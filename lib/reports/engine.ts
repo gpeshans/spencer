@@ -7,6 +7,7 @@ import {
   createSqlGuard,
   parseSemanticModel,
   priceOf,
+  SUPABASE_ROOT_CA_2021,
   tlsProblem,
   type ModelPrice,
   type ReportExecutor,
@@ -58,6 +59,8 @@ export function reportEngine(): ReportEngine {
       // Supavisor pools connections; a run only ever holds one.
       executor: createPgExecutor({
         url: databaseUrl,
+        // Verify the pooler's certificate, not just encrypt: it chains to Supabase's own root.
+        ca: SUPABASE_ROOT_CA_2021,
         role: reportsConfig.model.role,
         guard,
         timeZone: APP_TIMEZONE,

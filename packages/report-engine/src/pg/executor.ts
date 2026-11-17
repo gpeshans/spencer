@@ -2,7 +2,7 @@ import postgres from 'postgres';
 
 import type { SqlGuard } from '../sql-guard';
 import { toQueryError, type QueryError } from './errors';
-import { plainTextProblem } from './tls';
+import { plainTextProblem, trustedSsl } from './tls';
 import { columnType, parserFor, type ColumnType } from './values';
 
 /**
@@ -28,7 +28,8 @@ import { columnType, parserFor, type ColumnType } from './values';
  * exactly one statement, and every query sees the same snapshot.
  *
  * A connection that leaves this machine must use TLS (./tls.ts): the executor
- * refuses a URL that could reach a remote server in plain text.
+ * refuses a URL that could reach a remote server in plain text. Given `ca`, it
+ * also verifies the server's certificate and host name.
  */
 
 export interface ExecutorLimits {
@@ -64,6 +65,13 @@ export interface ExecutorOptions {
    * sslmode=require, verify-ca or verify-full.
    */
   url: string;
+  /**
+   * PEM certificates to trust for the server, e.g. SUPABASE_ROOT_CA_2021.
+   * With them, a connection that leaves this machine verifies the server: its
+   * certificate must chain to one of them and name the host (verify-full),
+   * whatever the URL's sslmode says.
+   */
+  ca?: string | readonly string[];
   /** Role every report runs as, via SET LOCAL ROLE. */
   role: string;
   /** Every query must pass it before it runs. */
@@ -166,12 +174,14 @@ export function createPgExecutor(options: ExecutorOptions): ReportExecutor {
   }
   const limits: ExecutorLimits = { ...DEFAULT_EXECUTOR_LIMITS, ...options.limits };
   const timeZone = options.timeZone ?? 'UTC';
+  const ssl = trustedSsl(options.url, options.ca);
   const sql = postgres(options.url, {
     max: options.maxConnections ?? 3,
     prepare: false,
     idle_timeout: 20,
     connect_timeout: 10,
     onnotice: () => {},
+    ...(ssl && { ssl }),
   });
   const tls = plainTextProblem(sql.options);
   if (tls) {

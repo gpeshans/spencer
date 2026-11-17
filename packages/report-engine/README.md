@@ -19,6 +19,7 @@ This is the working copy inside spencer. It is meant to be published as `querybr
   - **Output:** the original text, a structural fingerprint, and issues that name the valid alternatives.
 - `pg/` (M1b): the executor (`createPgExecutor`). It runs guard-approved SQL for one report:
   - **TLS:** it refuses a URL that could reach a remote server in plain text (`tlsProblem` says why). Unless the connection stays on this machine, the URL must say `sslmode=require`, `verify-ca` or `verify-full`.
+  - **Server verification:** given `ca`, a remote server's certificate must chain to one of those roots and name its host (`trustedSsl`, libpq's verify-full). `SUPABASE_ROOT_CA_2021` is the root that Supabase's poolers chain to.
   - **Envelope:** one `REPEATABLE READ READ ONLY` transaction that always rolls back, under `SET LOCAL ROLE`, with limits and the guard's session settings (`search_path = pg_catalog`, `standard_conforming_strings = on`).
   - **Scope:** the signed scope is set, then verified.
   - **Per query:** a savepoint, an `EXPLAIN` cost gate, a protocol-level row cap, a byte cap, and a tripwire that aborts and discards everything if the session changes.

@@ -19,7 +19,9 @@ import {
   checkFreshness,
   introspect,
   parseSemanticModel,
+  SUPABASE_ROOT_CA_2021,
   tlsProblem,
+  trustedSsl,
   type Introspection,
 } from 'report-engine';
 
@@ -46,7 +48,9 @@ async function fromMigrations(): Promise<Introspection> {
 }
 
 async function fromDatabase(url: string): Promise<Introspection> {
-  const sql = postgres(url, { max: 1, prepare: false, onnotice: () => {} });
+  // Verify the server as the reports do: its certificate chains to Supabase's root and names the host.
+  const ssl = trustedSsl(url, SUPABASE_ROOT_CA_2021);
+  const sql = postgres(url, { max: 1, prepare: false, onnotice: () => {}, ...(ssl && { ssl }) });
   try {
     return await introspect(sql, reportsConfig.model);
   } finally {
