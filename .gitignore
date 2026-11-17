@@ -54,3 +54,8 @@ supabase/.env
 
 # workspace packages
 packages/*/node_modules
+
+# report eval (evals/reports): transcripts and the generated page stay local
+evals/reports/results/*/traces/
+evals/reports/results/report.html
+evals/reports/results/trajectory/

@@ -1,0 +1,47 @@
+{
+  "metrics": [
+    {
+      "id": "correct",
+      "label": "Correct",
+      "kind": "binary"
+    },
+    {
+      "id": "outcome",
+      "label": "Right outcome",
+      "kind": "binary"
+    },
+    {
+      "id": "isolated",
+      "label": "Isolated",
+      "kind": "binary"
+    }
+  ],
+  "perf_fields": [
+    {
+      "id": "cost_usd",
+      "label": "Cost",
+      "unit": "$"
+    },
+    {
+      "id": "latency_s",
+      "label": "Time",
+      "unit": "s"
+    },
+    {
+      "id": "llm_calls",
+      "label": "LLM calls"
+    },
+    {
+      "id": "repairs",
+      "label": "Repairs"
+    },
+    {
+      "id": "fallback",
+      "label": "Fallback"
+    },
+    {
+      "id": "asked_approval",
+      "label": "Approval"
+    }
+  ]
+}

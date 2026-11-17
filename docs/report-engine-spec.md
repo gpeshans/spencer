@@ -567,7 +567,12 @@ Execution continues in `after()`, so it survives a closed tab. Small mutations (
 - **Golden tests:** standard reports (spending by category for a month, income for a month, a year summary) must match `lib/reports.ts` exactly.
 - **Pipeline:**
   - Recorded LLM responses (fixtures) mean the test suite costs nothing.
-  - A small evaluation set of about 25 questions with known answers runs against the real models on demand, after the budget is agreed.
+  - **The evaluation set** (`evals/reports`, built 2026-11-17) runs against the real models on demand, after the budget is agreed: `npm run reports:eval`.
+    - **The questions:** 26 about a made-up household, with periods relative to today. They cover figures, breakdowns, trends, listings, standing income, a derived difference, one that needs a clarifying answer, and five that should be refused, clarified or found infeasible. A second household holds marker values that no report may show, and one expense description is a prompt injection.
+    - **How they run:** each goes through `planRun` and `executeRun` with production's settings (model, per-run budget, deadline, shared values) on a throwaway database.
+    - **Grading is by code**, on the raw results: the right outcome, every expected value to the cent, and isolation. The expected values are worked out from the data in plain code, and a database test checks them against the reporting views.
+    - **The grader's own tests:** an oracle passes every case and empty runs fail them. The harness is tested offline with a scripted LLM.
+    - **Results** go to `evals/reports/results/<variant>/` in the Claude API skill's eval layout, and `npm run reports:eval:report` renders them.
 
 ## 12. Cost estimate (Opus 5.5; to be measured)
 
