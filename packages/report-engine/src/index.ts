@@ -199,8 +199,10 @@ export {
   RELATION_KINDS,
   schemaHash,
   SemanticModelSchema,
+  UNITS,
   type BuildInput,
   type BuildResult,
+  type ColumnUnit,
   type Dimension,
   type Example,
   type Freshness,
@@ -212,6 +214,7 @@ export {
   type SemanticColumn,
   type SemanticModel,
   type SemanticRelation,
+  type Unit,
 } from './semantic';
 export {
   createSqlGuard,

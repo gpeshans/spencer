@@ -17,6 +17,8 @@ export {
   parseSemanticModel,
   RELATION_KINDS,
   SemanticModelSchema,
+  UNITS,
+  type ColumnUnit,
   type Dimension,
   type Example,
   type Metric,
@@ -24,4 +26,5 @@ export {
   type SemanticColumn,
   type SemanticModel,
   type SemanticRelation,
+  type Unit,
 } from './model';

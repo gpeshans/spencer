@@ -252,6 +252,23 @@
       "column": "month"
     }
   ],
+  "columnUnits": [
+    {
+      "relation": "reporting.spendings",
+      "column": "amount",
+      "unit": "currency"
+    },
+    {
+      "relation": "reporting.monthly_income",
+      "column": "amount",
+      "unit": "currency"
+    },
+    {
+      "relation": "reporting.bucket_targets",
+      "column": "target_pct",
+      "unit": "percent"
+    }
+  ],
   "synonyms": [
     {
       "term": "expenses, costs, outgoings",

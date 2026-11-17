@@ -17,6 +17,13 @@ const paramValue = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 export const RELATION_KINDS = ['table', 'view', 'materialized_view', 'foreign_table'] as const;
 export type RelationKind = (typeof RELATION_KINDS)[number];
 
+/**
+ * What a number means, for showing it: an amount in the household's currency,
+ * a count, a percentage in points (12.5 means 12.5 %), or a plain number.
+ */
+export const UNITS = ['currency', 'count', 'percent', 'number'] as const;
+export type Unit = (typeof UNITS)[number];
+
 export const SemanticColumnSchema = z.object({
   name: z.string().min(1),
   type: z.string().min(1),
@@ -36,7 +43,14 @@ export const MetricSchema = z.object({
   relation: qualifiedName,
   /** An aggregate over the relation, e.g. `sum(amount)`. */
   expression: z.string().min(1),
-  unit: z.enum(['currency', 'count', 'percent', 'number']),
+  unit: z.enum(UNITS),
+});
+
+/** The unit of a plain numeric column, e.g. an expense's amount, so a listing can show it as money. */
+export const ColumnUnitSchema = z.object({
+  relation: qualifiedName,
+  column: z.string().min(1),
+  unit: z.enum(UNITS),
 });
 
 export const DimensionSchema = z.object({
@@ -74,6 +88,7 @@ export const SemanticModelSchema = z.object({
   relations: z.array(SemanticRelationSchema),
   metrics: z.array(MetricSchema).default([]),
   dimensions: z.array(DimensionSchema).default([]),
+  columnUnits: z.array(ColumnUnitSchema).default([]),
   synonyms: z.array(SynonymSchema).default([]),
   examples: z.array(ExampleSchema).default([]),
   suggestedReports: z.array(SuggestedReportSchema).default([]),
@@ -84,6 +99,7 @@ export type SemanticRelation = z.output<typeof SemanticRelationSchema>;
 export type SemanticColumn = z.output<typeof SemanticColumnSchema>;
 export type Metric = z.output<typeof MetricSchema>;
 export type Dimension = z.output<typeof DimensionSchema>;
+export type ColumnUnit = z.output<typeof ColumnUnitSchema>;
 export type Example = z.output<typeof ExampleSchema>;
 
 /** Parses a model file's JSON, with readable errors. */
