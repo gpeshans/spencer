@@ -82,16 +82,49 @@ export type ReportBlock =
   /** The section couldn't be computed. Why is in the run, not in the report. */
   | { kind: 'failed' };
 
+/** Plain text, with values where the narrative cited figures; each value is shown in its format. */
+export type NarrativeText = Array<string | { value: unknown; format: ValueFormat }>;
+
+/** Stage 8's headline and insights (docs/report-engine-spec.md §4). */
+export interface Narrative {
+  /** One sentence answering the question; null if it was dropped. */
+  headline: NarrativeText | null;
+  insights: NarrativeText[];
+}
+
+/**
+ * How far a section's numbers are checked (spec §8).
+ * - verified: the SQL compiled from the plan returned the same rows, or its rows are shown.
+ * - unverified: nothing could check them, or they fail one of the plan's cross-checks.
+ * - truncated: rows were cut, so totals over them are incomplete.
+ */
+export type Verification = 'verified' | 'unverified' | 'truncated';
+
 export interface ReportSection {
   id: string;
   title: string;
   /** One plain sentence on what the numbers are. */
   description: string | null;
   block: ReportBlock;
+  /** Null for text and failed sections, and for runs from before the checks. */
+  verification: Verification | null;
+}
+
+/** Days included, the first and the last. */
+export interface ReportPeriod {
+  first: string;
+  last: string;
+}
+
+/** How one section's numbers were computed, in a sentence. */
+export interface ReportSource {
+  section: string;
+  title: string;
+  summary: string;
 }
 
 export interface ReportDocument {
-  version: 1;
+  version: 2;
   title: string;
   summary: string;
   /** The question, as asked. */
@@ -100,7 +133,14 @@ export interface ReportDocument {
   status: 'succeeded' | 'partial';
   /** ISO 4217 code that every money value is in. */
   currency: string;
+  /** The period the question is about, and the one it is compared with. */
+  period: ReportPeriod | null;
+  comparison: ReportPeriod | null;
+  /** What the report takes as given, e.g. that "last month" means October 2026. */
+  assumptions: string[];
+  narrative: Narrative | null;
   sections: ReportSection[];
+  sources: ReportSource[];
 }
 
 /** Labels and colours for a dimension's values, e.g. a category's colour. */

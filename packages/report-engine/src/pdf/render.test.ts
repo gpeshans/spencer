@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ReportDocument } from '../report/document';
+import type { ReportDocument, ReportSection } from '../report/document';
 import { extent, labelEvery, niceTicks, pieSlices } from './geometry';
 import { renderReportPdf } from './render';
 
@@ -46,14 +46,32 @@ describe('chart geometry', () => {
   });
 });
 
+/** One section unverified, the rest checked. */
+const withChecks = (sections: Array<Omit<ReportSection, 'verification'>>): ReportSection[] =>
+  sections.map((section) => ({
+    ...section,
+    verification: section.id === 'by_category' ? 'unverified' : section.block.kind === 'text' || section.block.kind === 'failed' ? null : 'verified',
+  }));
+
 const report = (rows: number): ReportDocument => ({
-  version: 1,
+  version: 2,
   title: 'October spending',
   summary: 'Where the money went.',
   request: 'How much did we spend in October?',
   status: 'partial',
   currency: 'EUR',
-  sections: [
+  period: { first: '2026-10-01', last: '2026-10-31' },
+  comparison: { first: '2025-10-01', last: '2025-10-31' },
+  assumptions: ['October means October 2026.'],
+  narrative: {
+    headline: ['You spent ', { value: 1234.5, format: { kind: 'money' } }, ' in October.'],
+    insights: [['Groceries took ', { value: 24.3, format: { kind: 'percent' } }, ' of it.']],
+  },
+  sources: [
+    { section: 'total', title: 'Total', summary: 'Spend, from 2026-10-01 to 2026-10-31.' },
+    { section: 'by_category', title: 'By category', summary: 'Spending per category in October.' },
+  ],
+  sections: withChecks([
     { id: 'total', title: 'Total', description: 'All of October.', block: { kind: 'figures', figures: [{ label: 'Spend', value: 1234.5, format: { kind: 'money' } }] } },
     {
       id: 'by_category',
@@ -151,7 +169,7 @@ const report = (rows: number): ReportDocument => ({
     },
     { id: 'gone', title: 'Gone', description: null, block: { kind: 'failed' } },
     { id: 'none', title: 'None', description: null, block: { kind: 'empty' } },
-  ],
+  ]),
 });
 
 const pages = (pdf: Buffer) => pdf.toString('latin1').match(/\/Type \/Page\b/g)?.length ?? 0;

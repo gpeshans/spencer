@@ -2,7 +2,7 @@ import { Circle, Document, Line, Page, Path, Polyline, Rect, StyleSheet, Svg, Te
 import type { ReactNode } from 'react';
 
 import type { ChartPoint, ChartSpec, Figure, ReportBlock, ReportDocument, ReportSection, ReportTable } from '../report/document';
-import { formatValue, isNumeric, type FormatOptions } from '../report/format';
+import { formatNarrative, formatPeriod, formatValue, isNumeric, type FormatOptions } from '../report/format';
 import { extent, labelEvery, niceTicks, pieSlices } from './geometry';
 
 /**
@@ -54,6 +54,12 @@ const styles = StyleSheet.create({
   callout: { fontSize: 9, color: MUTED, backgroundColor: SOFT, padding: 8, borderRadius: 4, marginTop: 16, lineHeight: 1.35 },
   section: { marginTop: 20 },
   sectionTitle: { fontSize: 12, fontWeight: 'bold', lineHeight: 1.35 },
+  marker: { fontSize: 8, fontWeight: 'normal', color: MUTED },
+  headline: { fontSize: 11, fontWeight: 'bold', lineHeight: 1.4 },
+  insight: { fontSize: 9.5, lineHeight: 1.4, marginTop: 3 },
+  narrative: { marginTop: 14 },
+  sources: { marginTop: 24, paddingTop: 8, borderTopWidth: 0.75, borderTopColor: LINE },
+  sourcesTitle: { fontSize: 8, fontWeight: 'bold', color: MUTED, marginBottom: 2 },
   description: { fontSize: 8.5, color: MUTED, marginTop: 2, marginBottom: 8, lineHeight: 1.35 },
   failed: { fontSize: 9, color: DANGER },
   text: { fontSize: 9.5, lineHeight: 1.35 },
@@ -98,14 +104,41 @@ export function ReportPdf({ report, look }: { report: ReportDocument; look: PdfL
           <Text style={styles.title}>{report.title}</Text>
           {report.summary && <Text style={styles.summary}>{report.summary}</Text>}
           <Text style={[styles.meta, { marginTop: 8 }]}>Question: “{report.request}”</Text>
+          {report.period && (
+            <Text style={styles.meta}>
+              Period: {formatPeriod(report.period, format)}
+              {report.comparison ? `, compared with ${formatPeriod(report.comparison, format)}` : ''}
+            </Text>
+          )}
+          {report.assumptions.length > 0 && <Text style={styles.meta}>Assumes: {report.assumptions.join(' ')}</Text>}
           {look.asOf && <Text style={styles.meta}>Data as of {look.asOf}</Text>}
         </View>
+        {report.narrative && (
+          <View style={styles.narrative} wrap={false}>
+            {report.narrative.headline && <Text style={styles.headline}>{formatNarrative(report.narrative.headline, format)}</Text>}
+            {report.narrative.insights.map((insight, index) => (
+              <Text key={index} style={styles.insight}>
+                • {formatNarrative(insight, format)}
+              </Text>
+            ))}
+          </View>
+        )}
         {report.status === 'partial' && (
           <Text style={styles.callout}>Some sections couldn’t be computed; they say so below.</Text>
         )}
         {report.sections.map((section) => (
           <SectionView key={section.id} section={section} format={format} />
         ))}
+        {report.sources.length > 0 && (
+          <View style={styles.sources} wrap={false}>
+            <Text style={styles.sourcesTitle}>How these numbers were computed</Text>
+            {report.sources.map((source) => (
+              <Text key={source.section} style={styles.meta}>
+                {source.title}: {source.summary}
+              </Text>
+            ))}
+          </View>
+        )}
       </Page>
     </Document>
   );
@@ -120,7 +153,10 @@ function SectionView({ section, format }: { section: ReportSection; format: Form
   const { block } = section;
   const head = (
     <>
-      <Text style={styles.sectionTitle}>{section.title}</Text>
+      <Text style={styles.sectionTitle}>
+        {section.title}
+        {section.verification === 'unverified' && <Text style={styles.marker}>  Unverified: these numbers couldn’t be double-checked.</Text>}
+      </Text>
       {section.description ? <Text style={styles.description}>{section.description}</Text> : <View style={{ height: 6 }} />}
     </>
   );

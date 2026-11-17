@@ -70,3 +70,21 @@ export {
   type SqlInput,
   type StaticCheck,
 } from './sql';
+export { compileQuery, describeQuery } from './compile';
+export { computeDerived, runCrossChecks, type CheckResult, type ComputedSection, type DerivedResult, type DerivedRow } from './derive';
+export {
+  buildReferences,
+  checkSentence,
+  finishNarrative,
+  MAX_INSIGHTS,
+  NARRATIVE_INSTRUCTIONS,
+  narrativeRequest,
+  narrativeSchema,
+  renderNarrativeInput,
+  writeNarrative,
+  yearsOf,
+  type NarrativeDeps,
+  type NarrativeDraft,
+  type NarrativeInput,
+  type Reference,
+} from './narrative';

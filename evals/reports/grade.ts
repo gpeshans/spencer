@@ -1,14 +1,15 @@
-import type { RunState, SectionResult } from 'report-engine';
+import type { RunState } from 'report-engine';
 import { toNumber } from 'report-engine/report';
 
-import type { EvalCase, Fact, MapFact, Outcome, RowsFact, SeriesFact } from './cases';
+import type { EvalCase, Fact, MapFact, Outcome, Precision, RowsFact, SeriesFact } from './cases';
 import { MARKERS } from './fixture';
 
 /**
  * Grades a finished run against its case, by code: how it ended, whether its
  * results hold every expected fact, and whether anything from the other
- * household leaked in. It reads the raw results (each section's rows), not the
- * formatted report, and any section may carry a fact: the plan picks them.
+ * household leaked in. It reads the raw results (each section's rows, and each
+ * derived value with its section's keys), not the formatted report, and any of
+ * them may carry a fact: the plan picks them.
  */
 
 export type Actual = Outcome | 'error' | 'unfinished';
@@ -19,7 +20,7 @@ export interface FactCheck {
   detail: string;
 }
 
-export interface Graded {
+export interface Grade {
   grade: { correct: 0 | 1; outcome: 0 | 1; isolated: 0 | 1 };
   actual: Actual;
   /** A failed run's code, e.g. sections_failed. */
@@ -28,8 +29,14 @@ export interface Graded {
 }
 
 /** Money is exact to the cent; averages may carry more digits. */
-const TOLERANCE = 0.01 + 1e-9;
-const near = (a: number, b: number) => Math.abs(a - b) <= TOLERANCE;
+const TOLERANCE = 0.01;
+const near = (a: number, b: number, tolerance = TOLERANCE) => Math.abs(a - b) <= tolerance + 1e-9;
+
+/** What grading reads: a section's rows, or a derived value's. */
+interface Graded {
+  section: string;
+  rows: Array<Record<string, unknown>>;
+}
 
 export function outcomeOf(state: RunState): { actual: Actual; code: string | null } {
   switch (state.status) {
@@ -70,14 +77,26 @@ function cellsOf(row: Record<string, unknown>): Cells {
   return { texts, numbers };
 }
 
-const sectionsOf = (state: RunState): SectionResult[] => (state.results ?? []).filter((result) => result.status === 'ok');
-const rowsOf = (section: SectionResult) => section.rows.map(cellsOf);
-const hasNumber = (cells: Cells, value: number) => cells.numbers.some((number) => near(number, value));
+/** The sections that ran, then each derived value as rows of its section's keys and the value. */
+function sectionsOf(state: RunState): Graded[] {
+  const sections = (state.results ?? []).filter((result) => result.status === 'ok');
+  const derived = (state.derived ?? [])
+    .filter((value) => value.skipped === null)
+    .map((value) => ({ section: `derived ${value.id}`, rows: value.rows.map((row) => ({ ...row.key, [`derived:${value.id}`]: row.value })) }));
+  return [...sections, ...derived];
+}
+const rowsOf = (section: Graded) => section.rows.map(cellsOf);
+/** Whether a cell holds `value`, within the fact's precision; a percentage may come as a fraction. */
+const hasValue = (cells: Cells, value: number, precision: Precision = {}) => {
+  const tolerance = precision.tolerance ?? TOLERANCE;
+  return cells.numbers.some((number) => near(number, value, tolerance) || (precision.percent === true && near(number, value / 100, tolerance / 100)));
+};
+const hasNumber = (cells: Cells, value: number) => hasValue(cells, value);
 const nonZero = (cells: Cells) => cells.numbers.some((number) => Math.abs(number) > TOLERANCE);
 const money = (value: number) => value.toFixed(2);
 
-function checkScalar(sections: SectionResult[], value: number): string | null {
-  for (const section of sections) if (rowsOf(section).some((cells) => hasNumber(cells, value))) return `in ${section.section}`;
+function checkScalar(sections: Graded[], value: number, precision: Precision): string | null {
+  for (const section of sections) if (rowsOf(section).some((cells) => hasValue(cells, value, precision))) return `in ${section.section}`;
   return null;
 }
 
@@ -85,13 +104,18 @@ function checkScalar(sections: SectionResult[], value: number): string | null {
  * Map or series, in one section: every key on a row with its number, no row
  * for a key without that number (a duplicate, say), and other rows only zeros.
  */
-function checkKeyed(sections: SectionResult[], expected: Record<string, number>, matches: (cells: Cells, key: string) => boolean): { met: boolean; detail: string } {
+function checkKeyed(
+  sections: Graded[],
+  expected: Record<string, number>,
+  matches: (cells: Cells, key: string) => boolean,
+  precision: Precision,
+): { met: boolean; detail: string } {
   const entries = Object.entries(expected);
   let closest = { missing: entries.length + 1, detail: 'no section has these rows' };
   for (const section of sections) {
     const rows = rowsOf(section);
-    const missing = entries.filter(([key, value]) => !rows.some((cells) => matches(cells, key) && hasNumber(cells, value)));
-    const wrong = rows.filter((cells) => entries.some(([key, value]) => matches(cells, key) && !hasNumber(cells, value)));
+    const missing = entries.filter(([key, value]) => !rows.some((cells) => matches(cells, key) && hasValue(cells, value, precision)));
+    const wrong = rows.filter((cells) => entries.some(([key, value]) => matches(cells, key) && !hasValue(cells, value, precision)));
     const extra = rows.filter((cells) => !entries.some(([key]) => matches(cells, key)) && nonZero(cells));
     if (missing.length === 0 && wrong.length === 0 && extra.length === 0) return { met: true, detail: `in ${section.section}` };
     if (missing.length < closest.missing) {
@@ -106,15 +130,15 @@ function checkKeyed(sections: SectionResult[], expected: Record<string, number>,
   return { met: false, detail: closest.detail };
 }
 
-function checkMap(sections: SectionResult[], fact: MapFact) {
-  return checkKeyed(sections, fact.entries, (cells, key) => key.toLowerCase().split('|').every((part) => cells.texts.includes(part)));
+function checkMap(sections: Graded[], fact: MapFact) {
+  return checkKeyed(sections, fact.entries, (cells, key) => key.toLowerCase().split('|').every((part) => cells.texts.includes(part)), fact);
 }
 
-function checkSeries(sections: SectionResult[], fact: SeriesFact) {
-  return checkKeyed(sections, fact.points, (cells, key) => cells.texts.some((text) => text.slice(0, 7) === key));
+function checkSeries(sections: Graded[], fact: SeriesFact) {
+  return checkKeyed(sections, fact.points, (cells, key) => cells.texts.some((text) => text.slice(0, 7) === key), fact);
 }
 
-function checkRows(sections: SectionResult[], fact: RowsFact): { met: boolean; detail: string } {
+function checkRows(sections: Graded[], fact: RowsFact): { met: boolean; detail: string } {
   const fits = (cells: Cells, row: RowsFact['rows'][number]) =>
     hasNumber(cells, row.amount) &&
     (!row.text || cells.texts.some((text) => text.includes(row.text!.toLowerCase()))) &&
@@ -139,10 +163,10 @@ function checkRows(sections: SectionResult[], fact: RowsFact): { met: boolean; d
   return { met: false, detail: fact.ordered ? `no section lists these ${count} first, in this order` : `no section has exactly these ${count}` };
 }
 
-function checkFact(sections: SectionResult[], fact: Fact): FactCheck {
+function checkFact(sections: Graded[], fact: Fact): FactCheck {
   switch (fact.kind) {
     case 'scalar': {
-      const where = checkScalar(sections, fact.value);
+      const where = checkScalar(sections, fact.value, fact);
       return { label: fact.label, met: where !== null, detail: where ?? `no cell holds ${money(fact.value)}` };
     }
     case 'map':
@@ -165,7 +189,7 @@ export function isolated(state: RunState): boolean {
   return true;
 }
 
-export function gradeRun(evalCase: EvalCase, state: RunState): Graded {
+export function gradeRun(evalCase: EvalCase, state: RunState): Grade {
   const { actual, code } = outcomeOf(state);
   const sections = sectionsOf(state);
   const facts = actual === 'answer' ? evalCase.facts.map((fact) => checkFact(sections, fact)) : evalCase.facts.map((fact) => ({ label: fact.label, met: false, detail: `the run ended as ${actual}` }));

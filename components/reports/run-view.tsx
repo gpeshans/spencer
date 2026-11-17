@@ -30,6 +30,8 @@ const STAGES: ReadonlyArray<{ stage: RunStage; label: string }> = [
   { stage: 'writing_sql', label: 'Writing the queries' },
   { stage: 'validating', label: 'Checking the queries' },
   { stage: 'executing', label: 'Running the queries' },
+  { stage: 'verifying', label: 'Checking the numbers' },
+  { stage: 'narrating', label: 'Writing the summary' },
 ];
 
 const usd = (value: number) => `$${value.toFixed(value < 0.1 ? 3 : 2)}`;

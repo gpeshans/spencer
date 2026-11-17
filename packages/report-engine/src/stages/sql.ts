@@ -160,7 +160,7 @@ const TYPE_OF_KIND: Readonly<Record<ColumnKind, DeclaredType>> = {
 };
 
 /** The type each expected column should have, by name. */
-function expectedTypes(query: StructuredQuery, vocabulary: Vocabulary): Map<string, DeclaredType> {
+export function expectedTypes(query: StructuredQuery, vocabulary: Vocabulary): Map<string, DeclaredType> {
   const relation = vocabulary.relation(query.relation);
   const kinds = new Map(relation?.columns.map((column) => [column.name, column.kind]));
   const types = new Map<string, DeclaredType>();

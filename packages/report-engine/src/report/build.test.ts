@@ -114,22 +114,135 @@ describe('buildReport', () => {
     );
     const document = build(run);
     expect(document).toMatchObject({
-      version: 1,
+      version: 2,
       title: 'October spending',
       summary: 'Where it went.',
       request: 'How much did we spend?',
       status: 'succeeded',
       currency: 'EUR',
+      period: null,
+      comparison: null,
+      assumptions: [],
+      narrative: null,
+      sources: [{ section: 'total', title: 'Title total', summary: 'Summary of total.' }],
     });
     expect(document.sections).toEqual([
-      { id: 'note', title: 'Title note', description: null, block: { kind: 'text', text: 'Purpose of note.' } },
+      { id: 'note', title: 'Title note', description: null, block: { kind: 'text', text: 'Purpose of note.' }, verification: null },
       {
         id: 'total',
         title: 'Title total',
         description: 'Summary of total.',
         block: { kind: 'figures', figures: [{ label: 'Spend', value: 1234.5, format: { kind: 'money' } }] },
+        // A run from before the checks: nothing to say.
+        verification: null,
       },
     ]);
+  });
+
+  it('carries the period, the assumptions and the narrative', () => {
+    const run: RunState = {
+      ...finished([section('total', 'figure', aggregate({}))], [result('total', [['spend', 'number']], [{ spend: 1234.5 }])]),
+      intent: {
+        kind: 'figure',
+        restated: 'Spending in October.',
+        metrics: ['spend'],
+        dimensions: [],
+        grain: null,
+        filters: [],
+        period: OCTOBER,
+        comparison: { from: '2025-10-01', to: '2025-11-01' },
+        assumptions: ['October means October 2026.'],
+        ambiguities: [],
+        confidence: 'high',
+        refusal: null,
+      },
+      narrative: { headline: ['You spent ', { value: 1234.5, format: { kind: 'money' } }, '.'], insights: [] },
+    };
+    expect(build(run)).toMatchObject({
+      period: { first: '2026-10-01', last: '2026-10-31' },
+      comparison: { first: '2025-10-01', last: '2025-10-31' },
+      assumptions: ['October means October 2026.'],
+      narrative: run.narrative,
+    });
+  });
+
+  it('says how far each section is checked', () => {
+    const query = aggregate({ dimensions: ['category'] });
+    const columns: Array<[string, ColumnType]> = [['category', 'text'], ['spend', 'number']];
+    const rows = [{ category: 'Groceries', spend: 3 }];
+    const run: RunState = {
+      ...finished(
+        ['match', 'mismatch', 'fallback', 'unavailable', 'none', 'cut', 'summed', 'failed'].map((id) => section(id, 'table', query)),
+        [
+          result('match', columns, rows, { check: 'match' }),
+          result('mismatch', columns, rows, { check: 'mismatch', source: 'compiled', summary: 'Spend by category, from 2026-10-01 to 2026-10-31.' }),
+          result('fallback', columns, rows, { check: 'fallback', source: 'compiled' }),
+          result('unavailable', columns, rows, { check: 'unavailable' }),
+          result('none', columns, rows, { check: 'none' }),
+          result('cut', columns, rows, { check: 'match', truncated: 'rows' }),
+          result('summed', columns, rows, { check: 'match' }),
+          result('failed', [], [], { status: 'failed', check: 'none' }),
+        ],
+        'partial',
+      ),
+      checks: [{ kind: 'sums_to', parts: 'summed', total: 'match', metric: 'spend', verdict: 'fail', detail: 'They differ.' }],
+    };
+    const document = build(run);
+    expect(Object.fromEntries(document.sections.map((entry) => [entry.id, entry.verification]))).toEqual({
+      match: 'unverified',
+      mismatch: 'verified',
+      fallback: 'verified',
+      unavailable: 'unverified',
+      none: 'unverified',
+      cut: 'truncated',
+      summed: 'unverified',
+      failed: null,
+    });
+    // Compiled SQL's code-written summary goes in the sources, and the purpose describes the section.
+    expect(document.sections.find((entry) => entry.id === 'mismatch')?.description).toBe('Purpose of mismatch.');
+    expect(document.sources.find((source) => source.section === 'mismatch')?.summary).toBe('Spend by category, from 2026-10-01 to 2026-10-31.');
+    expect(document.sources.some((source) => source.section === 'failed')).toBe(false);
+  });
+
+  it('puts derived values beside the rows they come from', () => {
+    const run: RunState = {
+      ...finished(
+        [section('by_category', 'bar', aggregate({ dimensions: ['category'] })), section('total', 'figure', aggregate({}))],
+        [
+          result('by_category', [['category', 'text'], ['spend', 'number']], [{ category: 'Groceries', spend: 30 }, { category: 'Dining', spend: 10 }]),
+          result('total', [['spend', 'number']], [{ spend: 40 }]),
+        ],
+      ),
+      derived: [
+        {
+          id: 'share',
+          kind: 'share_of_total',
+          label: 'Share',
+          section: 'by_category',
+          format: { kind: 'percent' },
+          rows: [
+            { key: { category: 'Groceries' }, value: 75 },
+            { key: { category: 'Dining' }, value: 25 },
+          ],
+          skipped: null,
+        },
+        { id: 'left', kind: 'difference', label: 'Left over', section: 'total', format: { kind: 'money' }, rows: [{ key: {}, value: 960 }], skipped: null },
+        { id: 'skipped', kind: 'ratio', label: 'Ratio', section: 'total', format: { kind: 'number' }, rows: [], skipped: 'section x failed' },
+      ],
+    };
+    const block = blockOf(run, 'by_category');
+    if (block.kind !== 'chart') throw new Error(`expected a chart, not ${block.kind}`);
+    expect(block.table.columns.at(-1)).toEqual({ key: 'derived:share', label: 'Share', format: { kind: 'percent' } });
+    expect(block.table.rows.map((row) => row['derived:share'])).toEqual([75, 25]);
+    // The chart shows the metric only.
+    expect(block.chart.series.map((series) => series.label)).toEqual(['Spend']);
+    expect(blockOf(run, 'total')).toEqual({
+      kind: 'figures',
+      figures: [
+        { label: 'Spend', value: 40, format: { kind: 'money' } },
+        { label: 'Left over', value: 960, format: { kind: 'money' } },
+      ],
+    });
   });
 
   it("formats a breakdown's columns by their metric and dimension", () => {

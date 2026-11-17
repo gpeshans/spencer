@@ -33,6 +33,11 @@ const UNIT_FORMAT: Readonly<Record<Unit, ValueFormat>> = {
   number: { kind: 'number' },
 };
 
+/** How a value in `unit` is shown; a plain number without one. */
+export function unitFormat(unit: Unit | undefined): ValueFormat {
+  return unit ? UNIT_FORMAT[unit] : { kind: 'number' };
+}
+
 /** `spent_on` → "Spent on". */
 export function humanize(name: string): string {
   const words = name.replaceAll('_', ' ').replace(/\s+/g, ' ').trim();

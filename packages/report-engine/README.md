@@ -80,22 +80,35 @@ This is the working copy inside spencer. It is meant to be published as `querybr
   - **`checkSql`:** checks before anything runs: sql-guard; parameters (all used, and no plan value written in as a literal); and the output columns' names and types.
   - **`checkOutcome`:** after a query runs, flags an error, or columns other than the ones declared.
   - **`repairRequest`:** covers only the failing sections, each with its SQL, the exact problems and the columns of its view.
-- `pipeline/execution.ts` (M2c): **`executeRun`** takes an approved run through stages 4–6.
-  - It writes the SQL, checks it, and runs the valid queries together in one read-only transaction.
-  - It repairs what failed: up to two rounds, one call each. After a repair everything runs again, so the results share one snapshot.
-  - The run ends `succeeded`, `partial` (some sections failed, none essential) or `failed`.
-  - Every SQL version goes to `recordQuery`; spencer stores them in `report_queries`.
-  - The compiled fallback comes in M3.
-- `pipeline/state.ts`: `RunState`, shared by planning and execution, with `results` per section. `pipeline/tracker.ts` holds their shared bookkeeping: checked transitions, saves, usage and stage times.
+- `stages/compile.ts` (M3): **`compileQuery`** turns a section's structured query into SQL.
+  - Its output columns are the ones stage 4 must use, so its rows line up with the LLM's.
+  - Every identifier is quoted, every value is a parameter, and each metric is its semantic-model expression.
+  - It goes through `checkSql` and `checkOutcome` like any other SQL.
+- `pipeline/compare.ts` (M3): **`compareResults`** sets two results side by side, in any row order. Numbers may differ by half a cent, and a missing sum counts as nothing.
+- `pipeline/execution.ts` (M2c, M3): **`executeRun`** takes an approved run through stages 4–8.
+  - **Running the SQL:** it writes the SQL, checks it, and runs the valid queries, the LLM's beside the compiled ones, together in one read-only transaction.
+  - **Repairs:** up to two rounds of what the LLM got wrong, one call each. After a repair everything runs again, so the results share one snapshot.
+  - **The compiled cross-check:** each section's rows are set against its compiled rows. When they differ, the compiled rows are shown and the difference is logged. When the LLM's SQL still fails after the repairs, the compiled rows stand in. Each section records its `source` and its `check`: match, mismatch, fallback, unavailable, or none.
+  - **Stage 7, `stages/derive.ts`:** `computeDerived` works out the plan's derived values (share of total, change, difference, ratio) from the rows shown, and `runCrossChecks` checks that breakdowns add up to their totals.
+  - **Stage 8, `stages/narrative.ts`:** `writeNarrative` asks for a headline and up to four insights, at medium effort.
+    - The text cites figures only by reference, `{v3}`, and code puts the value in. A digit it writes itself is rejected (a year excepted), and so is a link.
+    - A failing text gets one retry, then its failing sentences are dropped.
+    - A run without a narrative still succeeds.
+  - **The ending:** the run ends `succeeded`, `partial` (some sections failed, none essential) or `failed`.
+  - **Logging:** every SQL version, compiled ones included, goes to `recordQuery` with its cross-check; spencer stores them in `report_queries`.
+- `pipeline/state.ts`: `RunState`, shared by planning and execution, with `results` per section, then `derived`, `checks` and `narrative`. `pipeline/tracker.ts` holds their shared bookkeeping: checked transitions, saves, usage and stage times.
 - `report/`: the report a finished run shows (spec §8). It's safe in a browser (`report-engine/report`): no database, LLM or SQL parser.
-  - **`buildReport(run, vocabulary, { currency, styles })`** returns a `ReportDocument`, with sections that are figures, a chart with its table, a table, text, empty or failed.
+  - **`buildReport(run, vocabulary, { currency, styles })`** returns a `ReportDocument` (v2), with sections that are figures, a chart with its table, a table, text, empty or failed.
     - Each column's format comes from the semantic model: units, `columnUnits`, or a grain.
-    - It carries nothing about how the numbers were computed.
+    - Derived values sit beside their section's rows, as one more column or figure.
+    - It carries the period, the assumptions and the narrative.
+    - Each section says how far it is checked: verified, unverified or truncated.
+    - It keeps one sentence per section on how its numbers were computed, and nothing else of it (no SQL, cost or repairs).
   - **`chartFor`** turns a section into a chart spec: sideways bars for names, upright bars or lines over time, pies.
     - Splits stack only when the metric adds up.
     - Shapes that wouldn't read well stay tables.
     - Colours come from the consumer's `styles` (hex only), else a palette.
-  - **`formatValue`** shows a value in its column's format and a locale: money in the currency, months by name, and so on.
+  - **`formatValue`** shows a value in its column's format and a locale: money in the currency, months by name, and so on. `formatPeriod` and `formatNarrative` build on it.
 - `pdf/`: the report as a PDF (`report-engine/pdf`, server-only), with @react-pdf/renderer.
   - **`renderReportPdf(document, { locale, asOf, brand, fonts })`** returns the file.
     - The page is A4, in the consumer's TTF fonts, or Helvetica without them.

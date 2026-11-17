@@ -178,7 +178,7 @@ Every stage reads the previous stage's typed result, saves its own result on the
   As built in M2c:
   - The dry run and the execution share one executor run. Each query's `EXPLAIN` gate runs just before the query, so a query that fails `EXPLAIN` never runs.
   - A repair round is one LLM call for every failing section. After it, every section runs again, so the results come from one snapshot.
-  - Step 2, the compiled fallback, arrives with the compiler in M3. Until then, a section that still fails after two repairs fails.
+  - Step 2, the compiled fallback, arrived with the compiler in M3 (below, stage 7).
 
 ### Stage 6: Execute (code)
 
@@ -197,6 +197,35 @@ Every stage reads the previous stage's typed result, saves its own result on the
   - This is the one check that catches SQL that is valid but wrong, such as summing income rows by date.
 - A section that fails a cross-check is marked "unverified" in the report, never shown silently.
 
+**As built in M3 (2026-11-17):**
+- **The compiler:** `stages/compile.ts` compiles a section's structured query to SQL whose output columns are the ones stage 4 must use, so the two results line up column by column.
+  - Identifiers are quoted, values are parameters, and each metric is its model expression.
+  - Compiled SQL is checked by `checkSql` and `checkOutcome` like the LLM's.
+- **One snapshot:** the compiled queries run in the same executor batch as the LLM's, every round, so the final comparison is within one snapshot.
+- **The outcome per section:**
+
+  | LLM's SQL | Compiled SQL | Rows shown | Check |
+  |---|---|---|---|
+  | ok | ok, equal | the LLM's | `match` |
+  | ok | ok, different | compiled (difference logged) | `mismatch` |
+  | still failing after the repairs | ok | compiled | `fallback` |
+  | ok | failed, or rows cut | the LLM's | `unavailable` |
+  | a section with no structured query | — | the LLM's | `none` |
+
+  - **The comparison** (`pipeline/compare.ts`): rows in any order; numbers within half a cent; a missing sum equals 0.
+  - **The log:** each check is logged on the query rows, `report_queries.source` and `cross_check`.
+- **Derived values and cross-checks** (`stages/derive.ts`) are computed from the rows shown.
+
+  | Derived value | Computed as | Matched on |
+  |---|---|---|
+  | `share_of_total` | percent of the section's sum | — |
+  | `difference` | a − b, a missing side counting 0 | dimension values and the period, so income's months meet spending's |
+  | `ratio` | a / b, null for 0 | the same |
+  | `change` | percent change | position within each dimension over a grain, since the comparison period has other dates |
+
+  - **A sums-to check** passes within a cent. It is skipped for averages, for cut breakdowns and for failed sections.
+  - **A failed sums-to check** makes both of its sections unverified.
+
 ### Stage 8: Narrate (LLM, medium effort)
 
 - Writes the headline and insights from the verified results.
@@ -205,9 +234,21 @@ Every stage reads the previous stage's typed result, saves its own result on the
 - **Check (code):** every number in the text must match a computed value, allowing for rounding. Otherwise the text is regenerated once; if it still fails, the sentence is dropped.
 - With row data set to `none` (the library default), the LLM sees only the names and shapes of the computed figures, and code fills in the values.
 
+**As built in M3, with references (decided 2026-11-17):** in every mode, code fills in the values.
+- **The figures:** the LLM gets a list of the figures it may cite, `v1`, `v2`, … (each section's numbers and dates, the derived values and the period). It sees their values only when the deployment shares them; spencer does.
+- **How it cites them:** it writes `{v3}` where a number goes, and code puts in the value.
+- **The checks:** a digit it writes itself is rejected, except a year of the figures or of today. So is a currency sign or % next to a reference, and a link.
+- **On failure:** a failing text gets one retry with the problems quoted. After that, the sentences that still fail are dropped.
+- **Stored resolved:** the narrative is saved as text and values with their formats, so it reads like the rest of the report in any locale.
+- **It never fails the run.** An LLM error, the budget or the deadline leaves the report without one.
+
 ### Stage 9: Render (code)
 
 The run produces one `ReportDocument` (§8) and saves it. The report page and the PDF both render from it, so they always match.
+
+**Deferred to M5 (decided 2026-11-17):**
+- The document is still built when it is shown, from the run's stored results, derived values, checks and narrative (`report_runs.result`).
+- Saving it is for M5's saved and scheduled reports, which need stored copies.
 
 ### Run states
 
@@ -326,7 +367,7 @@ Parser: `libpg-query` (the real Postgres grammar), pinned to the server's major 
   - No LLM stage has tools.
   - Every output is structured and checked by code.
   - The LLM never chooses the role, the scope, the limits or any flags.
-- **Narrative limits:** the narrative can't introduce numbers (the grounding check) or links.
+- **Narrative limits:** the narrative can't introduce numbers or links. It cites figures by reference and code fills them in (stage 8).
 
 ### 5.6 Output safety
 
@@ -433,7 +474,9 @@ Cost comes from a price table that includes cache pricing. beep-server's recorde
   - It's built when shown, not stored, so older runs get it too.
   - Sections are figures, a chart with its table, a table, text, empty or failed.
   - SQL, parameters, cost and failure causes never enter it.
-  - Still to come in M3: the period, assumptions, verification badges, the narrative and the query summaries footer. Stage 9 will save the document.
+  - **Added in M3 (v2):** the period and comparison period, the assumptions, the narrative, a verification per section (verified, unverified, truncated) and the sources (one sentence per section on how its numbers were computed). Derived values become extra columns or figures of their section.
+  - **On the page and in the PDF:** only "unverified" shows, as a badge or marker; verified sections stay plain. The sources sit at the end, collapsed on the page.
+  - **Saving the document** waits for M5 (stage 9).
 - **Values.**
   - Each column's format comes from the semantic model: a metric's unit, a plain column's `columnUnits` entry, or the grain of a time column (labelled "Month", "Week" and so on).
   - Without one, the format follows the type the database returned.
@@ -564,9 +607,9 @@ Execution continues in `after()`, so it survives a closed tab. Small mutations (
 - **Pipeline:**
   - Recorded LLM responses (fixtures) mean the test suite costs nothing.
   - **The evaluation set** (`evals/reports`, built 2026-11-17) runs against the real models on demand, after the budget is agreed: `npm run reports:eval`.
-    - **The questions:** 26 about a made-up household, with periods relative to today. They cover figures, breakdowns, trends, listings, standing income, a derived difference, one that needs a clarifying answer, and five that should be refused, clarified or found infeasible. A second household holds marker values that no report may show, and one expense description is a prompt injection.
+    - **The questions:** 31 about a made-up household, with periods relative to today. They cover figures, breakdowns, trends, listings, standing income, derived values (shares, a change, a ratio, differences), one that needs a clarifying answer, and five that should be refused, clarified or found infeasible. A second household holds marker values that no report may show, and one expense description is a prompt injection.
     - **How they run:** each goes through `planRun` and `executeRun` with production's settings (model, per-run budget, deadline, shared values) on a throwaway database.
-    - **Grading is by code**, on the raw results: the right outcome, every expected value to the cent, and isolation. The expected values are worked out from the data in plain code, and a database test checks them against the reporting views.
+    - **Grading is by code**, on the raw results and the derived values: the right outcome, every expected value (to the cent, or a percentage rounded to a tenth), and isolation. The expected values are worked out from the data in plain code, and a database test checks them against the reporting views.
     - **The grader's own tests:** an oracle passes every case and empty runs fail them. The harness is tested offline with a scripted LLM.
     - **Results** go to `evals/reports/results/<variant>/` in the Claude API skill's eval layout, and `npm run reports:eval:report` renders them.
 
@@ -603,7 +646,7 @@ Rough figures per interactive report. The schema prefix is about 4K tokens, roug
 | M6 | Hardening pass, budgets, usage view, package README/LICENSE/SECURITY.md | Prepare for extraction |
 
 **Pulled forward on 2026-11-17:** M3's in-app renderer (formatted values and charts) and M4's PDF download (§8, §9).
-- **Still open in M3:** post-processing (derived values), cross-checks, the compiled fallback, the narrative, and saving the document at stage 9.
+- **M3 built on 2026-11-17:** the compiler with the compiled cross-check and fallback, derived values and cross-checks, the narrative, and document v2. Saving the document moved to M5.
 - **Still open in M4:** scheduled runs' stored PDFs.
 
 ## 14. Environment facts and prerequisites

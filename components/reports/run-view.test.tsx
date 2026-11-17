@@ -153,6 +153,80 @@ describe('RunView', () => {
     expect(details).toContain('No SQL was written for this section.');
   });
 
+  it('shows the narrative, the period and how far the numbers are checked', () => {
+    const html = render(
+      base({
+        status: 'succeeded',
+        plan,
+        intent: {
+          kind: 'breakdown',
+          restated: 'Spending per category in October.',
+          metrics: ['spend'],
+          dimensions: ['category'],
+          grain: null,
+          filters: [],
+          period: OCTOBER,
+          comparison: null,
+          assumptions: ['October means October 2026.'],
+          ambiguities: [],
+          confidence: 'high',
+          refusal: null,
+        },
+        narrative: {
+          headline: ['You spent ', { value: 412.5, format: { kind: 'money' } }, ' in October.'],
+          insights: [['Groceries took ', { value: 100, format: { kind: 'percent' } }, ' of it.']],
+        },
+        results: [
+          {
+            section: 'by_category',
+            status: 'ok',
+            sql: 'select …',
+            params: [],
+            summary: 'Spend by category, from 2026-10-01 to 2026-10-31.',
+            columns: [
+              { name: 'category', type: 'text' },
+              { name: 'spend', type: 'number' },
+            ],
+            rows: [{ category: 'Groceries', spend: 412.5 }],
+            truncated: false,
+            attempts: 1,
+            problems: [],
+            source: 'compiled',
+            check: 'mismatch',
+          },
+          {
+            section: 'big_days',
+            status: 'ok',
+            sql: 'select …',
+            params: [],
+            summary: 'Days over 100.',
+            columns: [{ name: 'day', type: 'date' }],
+            rows: [{ day: '2026-10-01' }],
+            truncated: false,
+            attempts: 1,
+            problems: [],
+            source: 'llm',
+            check: 'none',
+          },
+        ],
+      }),
+    );
+    expect(html).toMatch(/You spent 412,50\s€ in October\./);
+    expect(html).toMatch(/Groceries took 100\s%/);
+    expect(html).toContain('October means October 2026.');
+    expect(html).toMatch(/1\.–31\. Okt\. 2026/);
+    // The section the compiled SQL checked has no badge; the one nothing could check has.
+    expect(html.match(/>Unverified</g)).toHaveLength(1);
+    expect(html).toContain('How these numbers were computed');
+    expect(html).toContain('Spend by category, from 2026-10-01 to 2026-10-31.');
+  });
+
+  it('shows the checking and writing steps while a run finishes', () => {
+    const html = render(base({ status: 'executing', stage: 'narrating', plan }));
+    expect(html).toContain('Checking the numbers');
+    expect(html).toContain('Writing the summary');
+  });
+
   it('explains a failure with its details', () => {
     const html = render(
       base({

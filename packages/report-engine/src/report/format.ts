@@ -1,4 +1,4 @@
-import type { ValueFormat } from './document';
+import type { NarrativeText, ReportPeriod, ValueFormat } from './document';
 
 /**
  * Shows a report value the way its column says: money in the report's currency,
@@ -39,6 +39,13 @@ function dateFormat(locale: string, options: Intl.DateTimeFormatOptions): Intl.D
     formatters.set(key, formatter);
   }
   return formatter as Intl.DateTimeFormat;
+}
+
+/** The day before an ISO date: the last day of a period whose `to` is not included. */
+export function dayBefore(isoDate: string): string {
+  const date = new Date(`${isoDate}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
 }
 
 /** A finite number, from a number or numeric text; null for anything else. */
@@ -121,6 +128,19 @@ export function formatValue(value: unknown, format: ValueFormat, options: Format
     case 'text':
       return typeof value === 'object' ? JSON.stringify(value) : String(value);
   }
+}
+
+/** A period as its days: "1–31 Oct 2026", or one day when it is one. */
+export function formatPeriod(period: ReportPeriod, { locale }: Pick<FormatOptions, 'locale'>): string {
+  const [first, last] = [parseDate(period.first, false), parseDate(period.last, false)];
+  if (!first || !last) return `${period.first} – ${period.last}`;
+  const days = dateFormat(locale, { day: 'numeric', month: 'short', year: 'numeric' });
+  return first.getTime() === last.getTime() ? days.format(first) : days.formatRange(first, last);
+}
+
+/** The narrative's words with its values in their formats. */
+export function formatNarrative(text: NarrativeText, options: FormatOptions): string {
+  return text.map((part) => (typeof part === 'string' ? part : formatValue(part.value, part.format, options))).join('');
 }
 
 /** Whether values in this format are numbers, shown right-aligned and charted. */
