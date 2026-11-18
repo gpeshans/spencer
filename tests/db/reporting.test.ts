@@ -24,7 +24,7 @@ async function rolledBack(work: Promise<unknown>): Promise<unknown> {
   throw new Error('expected the transaction to roll back');
 }
 
-describe.skipIf(!dockerAvailable())('migrations 0001-0008 on a local Postgres 17.6', () => {
+describe.skipIf(!dockerAvailable())('the migrations on a local Postgres 17.6', () => {
   let db: TestDatabase;
   let reader: postgres.Sql;
   let applied: string[] = [];
@@ -76,7 +76,8 @@ describe.skipIf(!dockerAvailable())('migrations 0001-0008 on a local Postgres 17
   it('applies every migration in order', () => {
     expect(applied).toContain('0007_tighten_table_grants.sql');
     expect(applied).toContain('0008_reporting.sql');
-    expect(applied.at(-1)).toBe('0009_reporting_hardening.sql');
+    expect(applied).toContain('0009_reporting_hardening.sql');
+    expect(applied.at(-1)).toBe('0010_allow_list_gates_access.sql');
   });
 
   describe('the reporting login', () => {

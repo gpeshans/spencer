@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 
 import { GoogleSignInButton } from '@/components/google-sign-in-button';
 import { Wordmark } from '@/components/wordmark';
-import { getAuthed } from '@/lib/session';
+import { getAuthed, getProfile } from '@/lib/session';
 
 const ERROR_MESSAGES: Record<string, string> = {
   not_allowed: 'This Google account is not on the allow-list for Spencer.',
@@ -15,11 +15,18 @@ export default async function LoginPage({
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
-  // Already signed in + allowed -> skip the login screen.
-  if (await getAuthed()) redirect('/');
+  // Signed in and still a member -> skip the login screen. A session whose
+  // access was removed (the allowed_emails table, migration 0010) stays here:
+  // its profile is no longer readable, so the app would send it straight back.
+  if (await getProfile()) redirect('/');
 
   const { error } = await searchParams;
-  const message = error ? (ERROR_MESSAGES[error] ?? 'Something went wrong.') : null;
+  const removed = !error && (await getAuthed()) !== null;
+  const message = error
+    ? (ERROR_MESSAGES[error] ?? 'Something went wrong.')
+    : removed
+      ? ERROR_MESSAGES.not_allowed
+      : null;
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col items-center justify-center gap-10 px-6">
