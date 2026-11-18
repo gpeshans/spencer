@@ -389,6 +389,23 @@ class Validator {
           this.unsupported('column definition lists on functions');
         }
         break;
+      case 'A_Indirection':
+        // `(x).name` is field/method selection. Postgres resolves it as the
+        // function name(x) for ANY single-argument function in the search path
+        // (pg_catalog), so it reaches functions the allow-list never sees, e.g.
+        // (2).pg_sleep or ('reports.scope').current_setting. `(x).*` expands a
+        // whole row the same way. Reject both; array subscripting (A_Indices)
+        // stays allowed. The compiler and the model's examples never use it.
+        if (Array.isArray(body.indirection)) {
+          for (const item of body.indirection) {
+            const element = asNode(item);
+            if (element?.type === 'String' || element?.type === 'A_Star') {
+              this.unsupported('field or method selection with (…).name');
+              break;
+            }
+          }
+        }
+        break;
     }
 
     for (const [key, child] of Object.entries(body)) {

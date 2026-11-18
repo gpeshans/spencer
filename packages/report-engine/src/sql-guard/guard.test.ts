@@ -134,6 +134,8 @@ describe('sql-guard accepts report queries', () => {
     ['a CTE named like a view', `with spendings as (select 1 as n) select n from spendings`, 0],
     ['ORDER BY ... USING an allowed operator', `select amount from reporting.spendings order by amount using >`, 0],
     ['= ANY (subquery)', `select 1 where 1 = any (select 1)`, 0],
+    // Array subscripting (A_Indices) stays allowed; only (x).name selection is blocked.
+    ['array subscripting', `select (array[10, 20, 30])[1] as first`, 0],
   ])('accepts %s', async (_label, sql, paramCount) => {
     await accept(sql, paramCount);
   });
@@ -201,6 +203,13 @@ describe('sql-guard rejects', () => {
     ['a function in another schema', "select public.lower('x')", 'function_not_allowed'],
     ['the scope function itself', 'select reporting.scope_group_id()', 'function_not_allowed'],
     ['an unbounded allocation', "select lpad('x', 1000000000)", 'function_not_allowed'],
+    // Attribute notation (x).fn reaches any 1-arg pg_catalog function past the
+    // function allow-list, because the parser sees field selection, not a call.
+    ['pg_sleep via attribute notation', 'select (2).pg_sleep', 'unsupported_construct'],
+    ['current_setting via attribute notation', "select ('reports.scope').current_setting", 'unsupported_construct'],
+    ['a coercion selector to regclass', "select ('reporting.spendings').regclass", 'unsupported_construct'],
+    ['ts_stat running arbitrary SQL via a selector', "select (t).word from (select ('select 1').ts_stat as t) q", 'unsupported_construct'],
+    ['row expansion with (x).*', 'select (s).* from reporting.spendings s', 'unsupported_construct'],
     // Relations outside the reporting views
     ['auth.users', 'select * from auth.users', 'relation_not_allowed'],
     ['public.profiles', 'select * from public.profiles', 'relation_not_allowed'],

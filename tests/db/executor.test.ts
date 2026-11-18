@@ -235,8 +235,10 @@ describe.skipIf(!dockerAvailable())('the report executor on a local Postgres 17.
     }
   });
 
-  it('reaches only side-effect-free catalog functions through attribute notation', async () => {
-    // `row.fn` calls fn(row); the guard can't tell it from a column name.
+  it('reaches only side-effect-free catalog functions through the row-column form', async () => {
+    // `alias.fn` (a ColumnRef) calls fn(row) when there is no such column; the
+    // guard can't tell it from a column name, so it can only reach functions
+    // that take the relation's row type. None of those in pg_catalog is volatile.
     const outcome = await one('select s.to_json from reporting.spendings s limit 1');
     expect(outcome.ok).toBe(true);
     const volatile = await prepared.db.admin`
@@ -248,5 +250,20 @@ describe.skipIf(!dockerAvailable())('the report executor on a local Postgres 17.
         and p.proargtypes[0] in ('record'::regtype, 'anyelement'::regtype, 'anycompatible'::regtype,
                                  '"any"'::regtype, 'anynonarray'::regtype, 'anycompatiblenonarray'::regtype)`;
     expect(volatile.map((row) => row.proname)).toEqual([]);
+  });
+
+  it('rejects (expr).fn attribute notation before running it', async () => {
+    // (expr).fn passes an arbitrary scalar to any 1-arg function, reaching past
+    // the function allow-list (e.g. pg_sleep, current_setting). The guard now
+    // rejects the field-selection form, so none of these ever runs.
+    for (const sql of [
+      'select (2).pg_sleep',
+      "select ('reports.scope').current_setting",
+      "select ('postgres').pg_database_size",
+      'select (s).* from reporting.spendings s',
+    ]) {
+      const outcome = await one(sql);
+      expect(outcome, sql).toMatchObject({ ok: false, error: { code: 'rejected' } });
+    }
   });
 });
