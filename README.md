@@ -57,7 +57,7 @@ npm install
 ### 2. Create a Supabase project
 
 Create a project at [supabase.com](https://supabase.com), then apply **all**
-migrations in `supabase/migrations/` — `0001` through `0009`, in numeric order.
+migrations in `supabase/migrations/` — `0001` through `0010`, in numeric order.
 The CLI does that for you:
 
 ```bash
@@ -83,13 +83,16 @@ npx supabase gen types typescript --linked > types/database.ts
 | `0007_tighten_table_grants` | Revokes Supabase's default ALL grants from `anon`/`authenticated`, re-granting only what each table intends (so a user can't move households by editing `profiles.group_id`). |
 | `0008_reporting` | The read-only `reporting` schema (security-invoker views), the `reports_login`/`reports_reader` roles, the HMAC-signed household scope, and the `report_*` run-log tables. For the report engine. |
 | `0009_reporting_hardening` | Triggers + CHECK constraints so a direct PostgREST write (which skips the app's validation) can't reassign a spending's author, spoof its bucket, store an over-long or non-hex value, or set another member as an income's creator; and deny-by-default grants for future tables. |
+| `0010_allow_list_gates_access` | The allow-list gates **all** data access, not just sign-up: RLS's household lookup requires a live `allowed_emails` entry, so removing an address cuts that account off immediately (see *Removing someone* below). Bounds on profile names and avatar URLs. |
 
 Because `0001` seeds the Family group, the category and bucket-target seeds in
 `0004`/`0005` land automatically. A fresh database therefore comes up usable with
 no manual seeding beyond the allow-list below.
 
-**Seed the allow-list** — this is the hard security gate (the database blocks anyone
-not listed, independent of the app). It is *data*, not schema, so it does **not**
+**Seed the allow-list** — this is the hard security gate: the database refuses to
+create an account for anyone not listed and, from migration `0010` on, shows and
+changes household data only for listed accounts, independent of the app. It is
+*data*, not schema, so it does **not**
 travel with a migration or a deploy: seed it once per database (local, production,
 …). In the SQL Editor:
 
@@ -100,13 +103,16 @@ insert into public.allowed_emails (email) values
 on conflict do nothing;
 ```
 
-> **Removing someone.** The app re-checks `ALLOWED_EMAILS` on every request
-> (`lib/session.ts` `getAuthed`), so dropping an address from that env var and
-> redeploying locks the account out immediately. Deleting the row from
-> `allowed_emails` only stops a *new* sign-up — it doesn't end an existing session —
-> so to fully offboard someone, remove them from `ALLOWED_EMAILS`, and delete their
-> user under **Supabase → Authentication → Users** (that cascades their profile and
-> rows). Keep the env var and the table in sync.
+> **Removing someone.** Delete their address from the `allowed_emails` table. From
+> migration `0010` on, that ends their access to every household row at once — reads
+> and writes, through the app or straight through the Supabase API, even with a
+> session they already hold — and adding the address back restores it. Also remove
+> it from `ALLOWED_EMAILS` (and redeploy) so the app sends them to the sign-in page.
+>
+> Don't delete their Supabase user: the spendings and income they recorded point at
+> their profile, so the delete fails — and keeping the profile keeps the household's
+> history attributed. The table is what grants access; the env var only shapes what
+> the app shows, so keep the two in sync.
 
 ### 3. Enable Google sign-in
 
@@ -322,7 +328,7 @@ app/
   auth/callback/    OAuth code exchange + allow-list enforcement
 proxy.ts            session refresh + soft redirect (Next 16 Proxy)
 lib/                supabase clients, auth, categories, format, reports, actions
-supabase/migrations/           schema, RLS, triggers, buckets, categories, reporting, hardening (0001 → 0009)
+supabase/migrations/           schema, RLS, triggers, buckets, categories, reporting, hardening (0001 → 0010)
 types/              hand-written DB types + view models
 ```
 
