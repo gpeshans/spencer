@@ -337,6 +337,7 @@ Parser: `libpg-query` (the real Postgres grammar), pinned to the server's major 
 **Functions:**
 - An allow-list only: aggregates, date and time, math, string, conditional and window functions.
 - The list is checked on **every node type that can call a function**. That includes `FuncCall` and `RangeFunction` (a function used as a table); the reviewed Postgres MCP Pro bypass, CVE-2026-85620, used the latter.
+- Attribute notation `(expr).name` is rejected (`A_Indirection` with a `String` or `A_Star` selector). Postgres resolves it as `name(expr)` for any single-argument function, so it would otherwise pass an arbitrary scalar to a function the allow-list never checks — e.g. `(2).pg_sleep`, `('reports.scope').current_setting` (found and closed in the 2026-11-18 review). Array subscripting (`A_Indices`) stays allowed.
 - Never allowed, for example: `set_config`, `current_setting`, `pg_sleep*`, `pg_advisory*`, `pg_terminate_backend`, `pg_cancel_backend`, `pg_read_file`, `pg_ls_dir`, `lo_*`, `dblink*`, `http*`, `query_to_xml`/`table_to_xml`/`cursor_to_xml`, `nextval`/`setval`, `pg_notify`.
 
 **Complexity:**
