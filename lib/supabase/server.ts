@@ -5,6 +5,8 @@ import { cookies } from 'next/headers';
 
 import type { Database } from '@/types/database';
 
+import { SESSION_COOKIE_OPTIONS } from './cookie-options';
+
 /**
  * Supabase client for Server Components, Route Handlers and Server Actions.
  * Reads/writes the auth session from cookies so RLS runs as the signed-in user.
@@ -16,6 +18,7 @@ export async function createClient() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
     {
+      cookieOptions: SESSION_COOKIE_OPTIONS,
       cookies: {
         getAll() {
           return cookieStore.getAll();

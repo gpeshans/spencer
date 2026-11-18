@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Don't advertise the framework (`X-Powered-By: Next.js`) to every visitor.
+  poweredByHeader: false,
   // The per-request Content-Security-Policy and the other security headers are
   // set by the Proxy (lib/supabase/proxy-session.ts), which runs on every page
   // and API request and holds the CSP nonce. HSTS is set here instead so it
