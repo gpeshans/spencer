@@ -21,10 +21,13 @@ export function CategoryPie({ data, total }: { data: CategoryTotal[]; total: num
     fill: resolve(d.category).color,
   }));
 
+  // Slot keys (c0, c1, …) rather than the raw category string: ChartConfig keys
+  // reach ChartStyle's injected CSS, and a category is user-writable. The pie
+  // colours each slice from chartData.fill, so these keys are only labels here.
   const config: ChartConfig = Object.fromEntries(
-    data.map((d) => {
+    data.map((d, index) => {
       const cat = resolve(d.category);
-      return [d.category, { label: cat.label, color: cat.color }];
+      return [`c${index}`, { label: cat.label, color: cat.color }];
     }),
   );
 
