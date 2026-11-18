@@ -57,7 +57,7 @@ npm install
 ### 2. Create a Supabase project
 
 Create a project at [supabase.com](https://supabase.com), then apply **all**
-migrations in `supabase/migrations/` — `0001` through `0006`, in numeric order.
+migrations in `supabase/migrations/` — `0001` through `0009`, in numeric order.
 The CLI does that for you:
 
 ```bash
@@ -80,6 +80,9 @@ npx supabase gen types typescript --linked > types/database.ts
 | `0004_buckets` | The `bucket` enum, `spendings.bucket` + its trigger, and `bucket_targets` seeded to 20 / 10 / 40 / 30 %. |
 | `0005_editable_categories` | `public.categories` per group, seeded with the 14 expense + 5 income defaults; repoints the bucket trigger at it. |
 | `0006_edit_spendings` | Group-wide UPDATE policy, so anyone in the group can fix anyone's row. |
+| `0007_tighten_table_grants` | Revokes Supabase's default ALL grants from `anon`/`authenticated`, re-granting only what each table intends (so a user can't move households by editing `profiles.group_id`). |
+| `0008_reporting` | The read-only `reporting` schema (security-invoker views), the `reports_login`/`reports_reader` roles, the HMAC-signed household scope, and the `report_*` run-log tables. For the report engine. |
+| `0009_reporting_hardening` | Triggers + CHECK constraints so a direct PostgREST write (which skips the app's validation) can't reassign a spending's author, spoof its bucket, store an over-long or non-hex value, or set another member as an income's creator; and deny-by-default grants for future tables. |
 
 Because `0001` seeds the Family group, the category and bucket-target seeds in
 `0004`/`0005` land automatically. A fresh database therefore comes up usable with
@@ -96,6 +99,14 @@ insert into public.allowed_emails (email) values
   ('partner@example.com')
 on conflict do nothing;
 ```
+
+> **Removing someone.** The app re-checks `ALLOWED_EMAILS` on every request
+> (`lib/session.ts` `getAuthed`), so dropping an address from that env var and
+> redeploying locks the account out immediately. Deleting the row from
+> `allowed_emails` only stops a *new* sign-up — it doesn't end an existing session —
+> so to fully offboard someone, remove them from `ALLOWED_EMAILS`, and delete their
+> user under **Supabase → Authentication → Users** (that cascades their profile and
+> rows). Keep the env var and the table in sync.
 
 ### 3. Enable Google sign-in
 
@@ -114,8 +125,14 @@ on conflict do nothing;
    - `http://localhost:3000/auth/callback`
    - `https://<your-domain>/auth/callback` — production
    - `https://*.vercel.app/auth/callback` — only if you want sign-in to work on
-     Vercel preview deployments (tighten the wildcard to your project/team prefix
-     if you can)
+     Vercel preview deployments
+
+   > **Security:** `https://*.vercel.app/auth/callback` trusts **any** `vercel.app`
+   > site as a sign-in redirect target, so anyone's preview deployment could be used
+   > to receive an OAuth redirect. Prefer a project-specific prefix
+   > (`https://<your-project>-*.vercel.app/auth/callback`), or omit the wildcard
+   > entirely and sign in only on production. The allow-list still gates who gets an
+   > account, but a narrower redirect list is strictly safer.
 
    The sign-in button asks Supabase to return to
    `${window.location.origin}/auth/callback` (`components/google-sign-in-button.tsx`),
@@ -225,7 +242,9 @@ Once you know the production URL — and again whenever you attach a custom doma
 - **Supabase → Authentication → URL Configuration**: set **Site URL** to
   `https://<your-domain>` and add `https://<your-domain>/auth/callback` to the
   redirect allow-list. Add the `https://*.vercel.app/auth/callback` wildcard too if
-  you want sign-in on preview deployments.
+  you want sign-in on preview deployments — but prefer a project-specific prefix
+  (`https://<your-project>-*.vercel.app/auth/callback`): a bare `*.vercel.app` trusts
+  any Vercel site as a redirect target (see the security note in Setup step 3).
 - **Google Cloud Console**: nothing to change. The OAuth redirect URI stays the
   Supabase callback. Add the domain under _Authorized JavaScript origins_ only if you
   have restricted them.
@@ -303,7 +322,7 @@ app/
   auth/callback/    OAuth code exchange + allow-list enforcement
 proxy.ts            session refresh + soft redirect (Next 16 Proxy)
 lib/                supabase clients, auth, categories, format, reports, actions
-supabase/migrations/           schema, RLS, triggers, buckets, categories, editing (0001 → 0006)
+supabase/migrations/           schema, RLS, triggers, buckets, categories, reporting, hardening (0001 → 0009)
 types/              hand-written DB types + view models
 ```
 

@@ -75,7 +75,8 @@ describe.skipIf(!dockerAvailable())('migrations 0001-0008 on a local Postgres 17
 
   it('applies every migration in order', () => {
     expect(applied).toContain('0007_tighten_table_grants.sql');
-    expect(applied.at(-1)).toBe('0008_reporting.sql');
+    expect(applied).toContain('0008_reporting.sql');
+    expect(applied.at(-1)).toBe('0009_reporting_hardening.sql');
   });
 
   describe('the reporting login', () => {

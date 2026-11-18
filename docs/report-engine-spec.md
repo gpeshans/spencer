@@ -301,6 +301,7 @@ The **database identity (RLS) is the security boundary**. The validator is defen
 - Supabase's default grants (including `TRUNCATE`) are revoked from `anon` and `authenticated` on the new log tables.
 - The `reporting` schema is not exposed through the Data API.
 - **Prerequisite (migration 0007):** the same default grants were never revoked on spencer's existing tables. That left `profiles.group_id` updatable by its owner, against the intent of `0001_init.sql:188-190`. Migration 0007 resets every app table to the privileges 0001–0005 intended.
+- **Hardening (migration 0009, 2026-11-18 review):** RLS already blocks every cross-household read and write, but a signed-in member can write to their own household's tables directly through PostgREST, bypassing the app's validation. 0009 closes the intra-household gaps that left: triggers pin a spending's author and re-derive its bucket from the category, pin an income's creator, CHECK constraints bound the free-text columns (above all a category's colour, which a report renders into a chart's stylesheet), and `alter default privileges` makes new public tables deny-by-default for the API roles.
 
 ### 5.3 Transaction envelope (one per report)
 
